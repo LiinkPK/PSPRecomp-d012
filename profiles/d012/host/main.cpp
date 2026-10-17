@@ -47,6 +47,16 @@ int main(int argc, char *argv[]) {
             std::filesystem::path bin_path(eboot);
             auto dir = bin_path.parent_path();
             if (dir.empty()) dir = ".";
+            // BOOT.bin may be supplied from the extracted-package parent while
+            // the actual PSP_GAME tree is one directory below it.
+            if (!std::filesystem::exists(dir / "PSP_GAME")) {
+                for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+                    if (entry.is_directory() && std::filesystem::exists(entry.path() / "PSP_GAME")) {
+                        dir = entry.path();
+                        break;
+                    }
+                }
+            }
             runtime.set_game_root(dir);
             d012::g_game_root = dir.string();
         }

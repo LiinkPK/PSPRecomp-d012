@@ -4413,7 +4413,7 @@ L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wa
       // restore the runtime-corrupted vtable at 0x089CAC90 and call FUN_088A2664(0.0f, 0x2713).
       // The vtable at 0x089CAC90 gets overwritten by pool/BSS data at runtime; we restore it
       // from the ELF (verified at file offset 0x1C7C68) before dispatching.
-      { constexpr bool kBackupSceneActivation = false;
+      { constexpr bool kBackupSceneActivation = true;
         // Keep disabled until the scene manager's render callback chain is
         // reconstructed; enabling it promotes an incomplete node and causes
         // unbounded malformed GE lists.
@@ -5269,6 +5269,8 @@ L_089C5E20:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5E30: // sceIoRead(fd, buf_va, size) -> bytes read
+    std::printf("[SCE-IO-READ] fd=0x%08X buf=0x%08X size=0x%08X\n", ctx.gpr[4], ctx.gpr[5], ctx.gpr[6]);
+    std::fflush(stdout);
     { const std::uint32_t fd   = ctx.gpr[4];
       const std::uint32_t buf_va = ctx.gpr[5];
       const std::uint32_t size = ctx.gpr[6];

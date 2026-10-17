@@ -54704,7 +54704,7 @@ void ovl_menu_recomp_unit_0002(Runtime &rt, AllegrexContext &ctx) {
 }
 
 void register_ovl_menu_generated_unit_2(Runtime &runtime) {
-    runtime.register_generated_unit(2u, 0x08A1D4C0u, 131072u, &ovl_menu_recomp_unit_0002, &ovl_menu_recomp_unit_0002_entry);
+    // Overlay units are dispatched through their per-PC registrations.
     runtime.register_function(0x08A1D4C0u, &ovl_menu_recomp_unit_0002, "ovl_menu_recomp_unit_0002");
     runtime.register_function(0x08A1D4D0u, &ovl_menu_recomp_unit_0002, "ovl_menu_recomp_unit_0002");
     runtime.register_function(0x08A1D4DCu, &ovl_menu_recomp_unit_0002, "ovl_menu_recomp_unit_0002");

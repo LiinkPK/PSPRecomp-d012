@@ -45943,7 +45943,8 @@ void ovl_menu_recomp_unit_0001(Runtime &rt, AllegrexContext &ctx) {
 }
 
 void register_ovl_menu_generated_unit_1(Runtime &runtime) {
-    runtime.register_generated_unit(1u, 0x089FD4C0u, 131072u, &ovl_menu_recomp_unit_0001, &ovl_menu_recomp_unit_0001_entry);
+    // Overlay units use the same Runtime as the main ELF but have a different
+    // address layout; do not poison the main executable's dense unit table.
     runtime.register_function(0x089FD4C0u, &ovl_menu_recomp_unit_0001, "ovl_menu_recomp_unit_0001");
     runtime.register_function(0x089FD4DCu, &ovl_menu_recomp_unit_0001, "ovl_menu_recomp_unit_0001");
     runtime.register_function(0x089FD4E0u, &ovl_menu_recomp_unit_0001, "ovl_menu_recomp_unit_0001");

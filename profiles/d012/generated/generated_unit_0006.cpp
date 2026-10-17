@@ -49311,7 +49311,9 @@ L_088DDDA0:
     if (rt.invoke_chained_direct<&recomp_unit_0009_entry, 9u, 2651u, 0x08935524u>(ctx, &aot_mem) && ctx.pc == 0x088DDDB0u) goto L_088DDDB0;
     return;
 L_088DDDB0:
-    if (ctx.gpr[19] < 0x08800000u || ctx.gpr[19] >= 0x0A000000u) {
+    // 0x0A000000-0x0BFFFFFF is the PSP uncached mirror of user RAM.  It is
+    // a valid guest destination, not an invalid host pointer.
+    if (ctx.gpr[19] < 0x08800000u || ctx.gpr[19] >= 0x0C000000u) {
         std::printf("[MPK-RECORD-SKIP] invalid copy destination s3=0x%08X\\n", ctx.gpr[19]);
         goto L_088DDE00;
     }
@@ -49332,8 +49334,8 @@ L_088DDDC0:
     // A malformed internal record must not turn its destination field into a
     // host/random pointer.  Preserve the original parser flow by completing
     // the current package without emitting that one record.
-    if (ctx.gpr[16] < 0x08800000u || ctx.gpr[16] >= 0x0A000000u ||
-        ctx.gpr[19] < 0x08800000u || ctx.gpr[19] >= 0x0A000000u ||
+    if (ctx.gpr[16] < 0x08800000u || ctx.gpr[16] >= 0x0C000000u ||
+        ctx.gpr[19] < 0x08800000u || ctx.gpr[19] >= 0x0C000000u ||
         ctx.gpr[20] >= 0x10000000u) {
         std::printf("[MPK-RECORD-SKIP] invalid destination s0=0x%08X s3=0x%08X\\n", ctx.gpr[16], ctx.gpr[19]);
         goto L_088DDE00;

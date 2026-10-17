@@ -25399,6 +25399,9 @@ L_089AD308:
     // nop
     goto L_089AD204;
 L_089AD310:
+    // FUN_089AD204 allocates/stores the node through the original param_1.
+    // The original routine then reloads param_1+8; FUN_089AD2D0 preserves
+    // param_1 in s1 (gpr[17]) across this allocator call.
     ctx.gpr[2] = (aot_mem.aot_load32(ctx.gpr[17] + static_cast<std::uint32_t>(8)));
     aot_mem.aot_store32(ctx.gpr[2] + static_cast<std::uint32_t>(16), ctx.gpr[16]);
     ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(8)));

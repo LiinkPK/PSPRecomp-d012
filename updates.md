@@ -1,8 +1,15 @@
 # PSPRecomp – Dissidia 012 (ULES01505.BIN) – Current State
 
-**Last updated:** 13/10/2026
+**Last updated:** 17/10/2026 (Session 12)
 
-**Goal:** Get the recompiled game to reach its main loop and eventually show a black screen window.
+**Goal:** Genuinely boot Dissidia 012’s original startup path and visibly render the authentic Square Enix logo through guest asset I/O → guest VRAM → GE → the native window. A blank window, hard-coded logo, placeholder, or host overlay does not count.
+
+### Consolidated Sessions 9–11
+
+- **Session 9 — Scene discovery:** Init completed and the guest created the Square Enix scene (`0x2713`) in the pending-scene list. Activation and drawable GE commands were still absent.
+- **Session 10 — Real startup I/O:** A visible native run loaded the real archive data into guest memory and presented guest VRAM without a host-side logo. GE execution remained state-only (`GE-PRIM=0`, `GE-CLEAR=0`, `GE-VDATA=0`).
+- **Session 11 — Cross-unit dispatch:** The mixed-unit fallback was corrected so valid AOT targets execute even when their unit also contains imports. The rebuilt executable now reaches real MPK loading without the earlier `CHAIN-BAD` scene-call failure, but malformed archive-record/object state still prevents scene geometry from being emitted. The authentic logo remains unverified.
+- **Session 12 — Resource-return tracing:** The rebuilt native window remains stable and presents guest VRAM; `data/package_info.bin` is genuinely opened and read. A register-preservation correction removed the render-chain crash. The remaining startup failure is narrowed to `FUN_0886330C`: the generated formatter/resource handoff still supplies truncated `data/s` instead of the reconstructed `data/package_info.bin`, so later assets and GE primitives are never reached. No logo was faked or verified.
 
 **Project:** `C:\path\to\your\folder\PSPRecomp`  
 **Build:** `cmake --build out\d012 --config Release` → binary at `out\d012\profiles\d012\Release\d012_native.exe`  

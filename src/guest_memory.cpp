@@ -152,6 +152,12 @@ std::uint8_t GuestMemory::aot_load8_slow(std::uint32_t address) const {
     if (is_vram_window(c)) return vram_[vram_offset(c)];
     if (c >= kPhysicalBase && c - kPhysicalBase < bytes_.size())
         return bytes_[static_cast<std::size_t>(c - kPhysicalBase)];
+    if (address < kPhysicalBase) {
+        static std::uint32_t unmapped8_logs = 0u;
+        if (unmapped8_logs++ < 32u)
+            std::printf("[GUEST-READ8-UNMAPPED] address=0x%08X -> 0\n", address);
+        return 0u;
+    }
     return load8(address);
 }
 
@@ -167,6 +173,12 @@ std::uint16_t GuestMemory::aot_load16_slow(std::uint32_t address) const {
         if (offset + 2u <= bytes_.size())
             return static_cast<std::uint16_t>(bytes_[offset]) |
                    static_cast<std::uint16_t>(static_cast<std::uint16_t>(bytes_[offset + 1u]) << 8u);
+    }
+    if (address < kPhysicalBase) {
+        static std::uint32_t unmapped16_logs = 0u;
+        if (unmapped16_logs++ < 32u)
+            std::printf("[GUEST-READ16-UNMAPPED] address=0x%08X -> 0\n", address);
+        return 0u;
     }
     return load16(address);
 }
@@ -187,6 +199,12 @@ std::uint32_t GuestMemory::aot_load32_slow(std::uint32_t address) const {
                (static_cast<std::uint32_t>((*data)[offset + 1u]) << 8u) |
                (static_cast<std::uint32_t>((*data)[offset + 2u]) << 16u) |
                (static_cast<std::uint32_t>((*data)[offset + 3u]) << 24u);
+    }
+    if (address < kPhysicalBase) {
+        static std::uint32_t unmapped32_logs = 0u;
+        if (unmapped32_logs++ < 32u)
+            std::printf("[GUEST-READ32-UNMAPPED] address=0x%08X -> 0\n", address);
+        return 0u;
     }
     return load32(address);
 }

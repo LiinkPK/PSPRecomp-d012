@@ -214,7 +214,11 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
 #if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     count_pc(ctx.pc);
 #endif
-    if (chain_depth_ >= chain_depth_limit_) return false;
+    if (chain_depth_ >= chain_depth_limit_) {
+        static std::uint32_t s_depth_fail = 0u;
+        if (++s_depth_fail <= 16u) std::printf("[CHAIN-DEPTH-FAIL#%u] pc=0x%08X depth=%u\\n", s_depth_fail, ctx.pc, chain_depth_);
+        return false;
+    }
 
     if (ctx.pc == 0u) {
         ctx.gpr[2] = 0u;
@@ -228,6 +232,15 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
             ctx.pc = recovery != 0u ? recovery : 0x00000001u;
         }
         return ctx.pc != 0x00000001u;
+    }
+
+    // Generic translated calls can target a profile/HLE replacement.  Check
+    // that table before probing the dense AOT units; otherwise import-overlap
+    // units appear as lookup misses and their guest callers unwind early.
+    if (const RecompiledFunction override_fn = lookup_function_override(ctx.pc);
+        override_fn != nullptr) {
+        override_fn(*this, ctx);
+        return !chain_context_invalidated_;
     }
 
     // Indirect jalr/vcall targets usually land in ordinary generated code too.
@@ -257,11 +270,50 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
     }
     if (function == nullptr) {
         const std::uint32_t delta = memory_.canonical(ctx.pc) - direct_base_;
-        if ((delta & 3u) != 0u) return false;
+        if ((delta & 3u) != 0u) { std::printf("[CHAIN-LOOKUP-ALIGN] pc=0x%08X\\n", ctx.pc); return false; }
         const std::size_t index = static_cast<std::size_t>(delta) / 4u;
-        if (index >= direct_chainable_.size()) return false;
+        if (index >= direct_chainable_.size()) { std::printf("[CHAIN-LOOKUP-RANGE] pc=0x%08X\\n", ctx.pc); return false; }
         function = direct_chainable_[index];
-        if (function == nullptr) return false;
+        if (function == nullptr) {
+            // The recovered menu overlay contains a small number of callback
+            // pointers into the middle of generated functions.  The split AOT
+            // output registers function labels, but not those interior PCs.
+            // Recover only close interior targets within the overlay's mapped
+            // code range; never turn arbitrary guest data into a callable PC.
+            const std::uint32_t overlay_pc = memory_.canonical(ctx.pc);
+            if (overlay_pc >= 0x089DD4C0u && overlay_pc < 0x08B80000u) {
+                std::uint32_t nearest_pc = 0u;
+                RecompiledFunction nearest_fn = nullptr;
+                std::uint32_t nearest_delta = 0xFFFFFFFFu;
+                for (const auto &[registered_pc, entry] : functions_) {
+                    if (registered_pc > overlay_pc ||
+                        overlay_pc - registered_pc > 0x40u ||
+                        !entry.name.starts_with("ovl_menu_recomp_unit_")) {
+                        continue;
+                    }
+                    const std::uint32_t delta = overlay_pc - registered_pc;
+                    if (delta < nearest_delta) {
+                        nearest_pc = registered_pc;
+                        nearest_fn = entry.function;
+                        nearest_delta = delta;
+                    }
+                }
+                if (nearest_fn != nullptr) {
+                    static std::uint32_t s_overlay_alias = 0u;
+                    if (++s_overlay_alias <= 32u) {
+                        std::printf("[OVERLAY-INTERIOR#%u] pc=0x%08X -> 0x%08X\\n",
+                                    s_overlay_alias, ctx.pc, nearest_pc);
+                    }
+                    ctx.pc = nearest_pc;
+                    function = nearest_fn;
+                }
+            }
+        }
+        if (function == nullptr) {
+            static std::uint32_t s_lookup_fail = 0u;
+            if (++s_lookup_fail <= 32u) std::printf("[CHAIN-LOOKUP-MISS#%u] pc=0x%08X\\n", s_lookup_fail, ctx.pc);
+            return false;
+        }
     }
 
     const std::uint32_t target_pc = ctx.pc;
@@ -288,6 +340,15 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
     } else {
         function(*this, ctx);
     }
+    if (target_pc == 0x08863EA4u || target_pc == 0x08863EE4u ||
+        target_pc == 0x08863F0Cu || target_pc == 0x08863F24u) {
+        static std::uint32_t s_resource_returns = 0u;
+        if (++s_resource_returns <= 12u) {
+            std::printf("[RESOURCE-CHAIN-RET#%u] target=0x%08X pc=0x%08X ra=0x%08X sp=0x%08X v0=0x%08X\n",
+                        s_resource_returns, target_pc, ctx.pc, ctx.gpr[31], ctx.gpr[29], ctx.gpr[2]);
+            std::fflush(stdout);
+        }
+    }
 #if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     if (g_post_chained_call_hook != nullptr)
         g_post_chained_call_hook(*this, ctx, target_pc, native_depth);
@@ -299,6 +360,14 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
     // generation guard here even in production; compile-time direct chains use
     // chain_context_invalidated_ and retain their cheaper hot path.
     if (caller_generation != g_runtime_thread_switch_generation_fast) {
+        static std::uint32_t s_generation_unwind = 0u;
+        if (++s_generation_unwind <= 32u) {
+            std::printf("[CHAIN-GEN-UNWIND#%u] target=0x%08X pc=0x%08X caller_gen=%llu current_gen=%llu\\n",
+                        s_generation_unwind, target_pc, ctx.pc,
+                        static_cast<unsigned long long>(caller_generation),
+                        static_cast<unsigned long long>(g_runtime_thread_switch_generation_fast));
+            std::fflush(stdout);
+        }
         (void)account_dispatch_work(ctx, false);
         return false;
     }

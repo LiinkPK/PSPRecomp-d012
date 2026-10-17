@@ -56224,7 +56224,6 @@ void ovl_menu_recomp_unit_0006(Runtime &rt, AllegrexContext &ctx) {
 }
 
 void register_ovl_menu_generated_unit_6(Runtime &runtime) {
-    runtime.register_generated_unit(6u, 0x08A9D4C0u, 131072u, &ovl_menu_recomp_unit_0006, &ovl_menu_recomp_unit_0006_entry);
     runtime.register_function(0x08A9D4C0u, &ovl_menu_recomp_unit_0006, "ovl_menu_recomp_unit_0006");
     runtime.register_function(0x08A9D4C4u, &ovl_menu_recomp_unit_0006, "ovl_menu_recomp_unit_0006");
     runtime.register_function(0x08A9D534u, &ovl_menu_recomp_unit_0006, "ovl_menu_recomp_unit_0006");

@@ -54253,7 +54253,7 @@ L_0888251C:
           std::printf("[TASK] dispatch #%u task=0x%08X fn=0x%08X (tbl0=0x%08X)\n", s_dispatch_count, ctx.gpr[19], ctx.gpr[5], cur_tbl0);
           std::fflush(stdout);
       }
-      constexpr bool kBackupSchedulerPassLimit = true;
+      constexpr bool kBackupSchedulerPassLimit = false;
       // One complete task-list pass is eight tasks in this title.  The
       // reconstructed list can re-enter itself after that pass; returning
       // here lets VBlank advance and gives the title asset loader a turn.
@@ -54275,7 +54275,7 @@ L_0888251C:
       // Backup switch: FUN_088A1AE4 is a maintenance task, not the scene
       // renderer. In the incomplete task graph it monopolizes dispatch and
       // prevents the VSync task from advancing frames.
-      constexpr bool kBackupSkipMaintenanceTask = true;
+      constexpr bool kBackupSkipMaintenanceTask = false;
       if (kBackupSkipMaintenanceTask && task_fn_saved == 0x088A1AE4u) {
           ctx.gpr[16] = sched_gpr16_saved;
           ctx.gpr[17] = sched_gpr17_saved;

@@ -174,6 +174,22 @@
           <span class="font-bold text-tokyo-accent min-w-[3rem]">S8</span>
           <span class="text-tokyo-muted"><strong class="text-tokyo-text">GE pipeline root cause.</strong> Traced render chain timing (VCB path confirmed correct). Fixed GE vertex address range. Identified exact geometry blocker: <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ARCH-SYNTH</code> returns fake entries with sub-chunk count=0, halting all vertex data writes. Root: archive object index table not populated despite <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">main.bin</code> loaded at <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x09644A80</code>. Next: find + trigger archive init function.</span>
         </div>
+        <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
+          <span class="font-bold text-tokyo-accent min-w-[3rem]">S9</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">Scene discovery.</strong> Completed the init sequence, detected the Square Enix scene type <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x2713</code>, and placed it on the guest pending-scene list. Activation and drawable GE commands were still missing.</span>
+        </div>
+        <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
+          <span class="font-bold text-tokyo-accent min-w-[3rem]">S10</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">Real startup I/O.</strong> Rebuilt and visibly ran the native executable; real archives reached guest memory and the window presented guest VRAM without a host-side logo. GE execution remained state-only: no primitive, clear, or vertex-data commands.</span>
+        </div>
+        <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
+          <span class="font-bold text-tokyo-accent min-w-[3rem]">S11</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">Cross-unit scene dispatch.</strong> Fixed the mixed-unit fallback so valid AOT targets are entered even when a unit also contains imports. The new build succeeds and reaches real MPK loading; the current blocker is malformed archive-record/object state before scene geometry is emitted. The authentic Square Enix logo remains unverified.</span>
+        </div>
+        <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
+          <span class="font-bold text-tokyo-accent min-w-[3rem]">S12</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">Resource-return tracing.</strong> Confirmed the rebuilt native window remains stable and presents guest VRAM, while the first package read succeeds. Corrected the render-chain continuation register and traced the remaining startup blocker to the <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">FUN_0886330C</code> resource-path/stack handoff: the generated formatter still passes truncated <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">data/s</code> instead of the reconstructed <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">data/package_info.bin</code>. The authentic logo is still not verified.</span>
+        </div>
       </div>
     </section>
 
@@ -215,7 +231,7 @@
     </section>
 
     <footer class="text-center text-xs text-tokyo-muted py-4 border-t border-tokyo-border">
-      PSPRecomp · Dissidia 012 PC Port · Last updated: October 2026 ·
+      PSPRecomp · Dissidia 012 PC Port · Last updated: 17/10/2026 ·
       <a href="https://github.com/LiinkPK/PSPRecomp-d012" target="_blank" rel="noopener" class="hover:text-tokyo-accent">github.com/LiinkPK/PSPRecomp-d012</a>
     </footer>
 

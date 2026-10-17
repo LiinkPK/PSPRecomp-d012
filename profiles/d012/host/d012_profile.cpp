@@ -179,6 +179,8 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         std::vector<std::uint8_t> tmp(size);
         const std::size_t n = std::fread(tmp.data(), 1, size, it->second.fp);
         if (n > 0u) rt.memory().copy_in(buf, std::span<const std::uint8_t>(tmp.data(), n));
+        std::printf("[IO-READ-HLE] fd=%u requested=%u read=%zu guest_buf=0x%08X\n", fd, size, n, buf);
+        std::fflush(stdout);
         ctx.gpr[2] = static_cast<std::uint32_t>(n);
         ctx.pc = ctx.gpr[31];
     };
@@ -1066,6 +1068,11 @@ std::uint32_t io_open(const std::string &psp_path, std::uint32_t flags) {
         }
         // strip leading slash
         if (!rel.empty() && (rel[0] == '/' || rel[0] == '\\')) rel = rel.substr(1);
+        // The guest requests USRDIR-relative paths such as data/package_info.bin.
+        // A decrypted PSP directory supplied as BOOT.bin stores these under
+        // PSP_GAME/USRDIR, so resolve that guest-relative prefix accordingly.
+        if (rel.size() >= 5 && (rel.compare(0, 5, "data/") == 0 || rel.compare(0, 5, "data\\") == 0))
+            rel = "PSP_GAME/USRDIR/" + rel;
         host_path = g_game_root + "/" + rel;
     } else {
         host_path = psp_path;
@@ -1090,7 +1097,10 @@ std::uint32_t io_open(const std::string &psp_path, std::uint32_t flags) {
 std::int32_t io_read(std::uint32_t fd, void *buf, std::uint32_t size) {
     auto it = s_fds.find(fd);
     if (it == s_fds.end()) return -1;
-    return static_cast<std::int32_t>(std::fread(buf, 1, size, it->second.fp));
+    const auto count = static_cast<std::int32_t>(std::fread(buf, 1, size, it->second.fp));
+    std::printf("[IO-READ] fd=%u requested=%u read=%d path=%s\n", fd, size, count, it->second.path.c_str());
+    std::fflush(stdout);
+    return count;
 }
 
 std::int32_t io_close(std::uint32_t fd) {

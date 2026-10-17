@@ -2779,6 +2779,7 @@ LOCAL_DISPATCH:
     case 0x08893CECu: goto L_08893CEC;
     case 0x08893CF8u: goto L_08893CF8;
     case 0x08893D04u: goto L_08893D04;
+    case 0x08893D64u: goto L_08893D64;
     case 0x08893D30u: goto L_08893D30;
     case 0x08893DACu: goto L_08893DAC;
     case 0x08893DE4u: goto L_08893DE4;
@@ -53393,6 +53394,68 @@ L_088A402C:
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(4), ctx.gpr[16]);
     ctx.gpr[16] = (ctx.gpr[4] | 0u);
     ctx.pc = 0x088A4040u; return;
+L_08893D64:
+    ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(-16));
+    goto L_08893D68;
+L_08893D68:
+    ctx.set_gpr(6, rt.memory().aot_load8(ctx.gpr[4] + static_cast<std::uint32_t>(1552)));
+    goto L_08893D6C;
+L_08893D6C:
+    ctx.set_gpr(5, 0u | 1u);
+    goto L_08893D70;
+L_08893D70:
+    rt.memory().aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[31]);
+    goto L_08893D74;
+L_08893D74:
+    { const bool branch_taken = ctx.gpr[6] != ctx.gpr[5];
+    // nop
+      if (branch_taken) {
+          goto L_08893D98;
+      }
+      goto L_08893D7C;
+    }
+L_08893D7C:
+    ctx.set_gpr(6, rt.memory().aot_load8(ctx.gpr[4] + static_cast<std::uint32_t>(1380)));
+    goto L_08893D80;
+L_08893D80:
+    { const bool branch_taken = ctx.gpr[6] != ctx.gpr[5];
+    // nop
+      if (branch_taken) {
+          goto L_08893D98;
+      }
+      goto L_08893D88;
+    }
+L_08893D88:
+    ctx.set_gpr(31, 0x08893D90u);
+    ctx.set_gpr(4, ctx.gpr[4] + static_cast<std::uint32_t>(1248));
+    ctx.pc = 0x088953BCu;
+    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08893D90u) goto L_08893D90;
+    return;
+L_08893D90:
+    { const bool branch_taken = 0u == 0u;
+    // nop
+      if (branch_taken) {
+          goto L_08893DA0;
+      }
+      goto L_08893D98;
+    }
+L_08893D98:
+    ctx.set_gpr(31, 0x08893DA0u);
+    // nop
+    ctx.pc = 0x088953BCu;
+    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08893DA0u) goto L_08893DA0;
+    return;
+L_08893DA0:
+    ctx.set_gpr(31, rt.memory().aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
+    goto L_08893DA4;
+L_08893DA4:
+    jump_target = ctx.gpr[31];
+    ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(16));
+    local_pc = jump_target;
+    if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
+    ctx.pc = jump_target;
+    return;
+
 }
 
 void recomp_unit_0004(Runtime &rt, AllegrexContext &ctx) {
@@ -56167,6 +56230,7 @@ void register_generated_unit_4(Runtime &runtime) {
     runtime.register_function(0x08893CECu, &recomp_unit_0004, "recomp_unit_0004");
     runtime.register_function(0x08893CF8u, &recomp_unit_0004, "recomp_unit_0004");
     runtime.register_function(0x08893D04u, &recomp_unit_0004, "recomp_unit_0004");
+    runtime.register_function(0x08893D64u, &recomp_unit_0004, "recomp_unit_0004");
     runtime.register_function(0x08893D30u, &recomp_unit_0004, "recomp_unit_0004");
     runtime.register_function(0x08893DACu, &recomp_unit_0004, "recomp_unit_0004");
     runtime.register_function(0x08893DE4u, &recomp_unit_0004, "recomp_unit_0004");

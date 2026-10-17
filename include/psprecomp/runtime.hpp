@@ -164,6 +164,15 @@ public:
             return invoke_chained_unit(ctx, UnitIndex, shared_aot_mem);
         }
         if (generated_unit_disabled_[UnitIndex] != 0u) {
+            if constexpr (DirectTargetPc == 0x089A01FCu || DirectTargetPc == 0x0899F5A4u ||
+                          DirectTargetPc == 0x0899FA64u || DirectTargetPc == 0x089C5AA8u) {
+                static std::uint32_t s_disabled_trace = 0u;
+                if (++s_disabled_trace <= 16u) {
+                    std::printf("[CHAIN-DISABLED#%u] unit=%u target=0x%08X\\n",
+                                s_disabled_trace, UnitIndex, DirectTargetPc);
+                    std::fflush(stdout);
+                }
+            }
             // A unit can be poisoned because it contains PSP import stubs while
             // other exact entries in the same 16 KiB bucket remain ordinary AOT.
             // codegen sends known import targets straight to outer
@@ -171,7 +180,37 @@ public:
             // chain table rather than pessimistically abandoning all chaining in
             // the mixed bucket. Host/HLE overrides are still non-chainable there.
             if constexpr (DirectTargetPc != 0u) {
-                ctx.pc = DirectTargetPc;
+                if constexpr (DirectTargetPc != 0u) {
+                    if (const RecompiledFunction _ov = lookup_function_override(DirectTargetPc); _ov != nullptr) {
+                        ctx.pc = DirectTargetPc;
+                        _ov(*this, ctx);
+                        return !chain_context_invalidated_;
+                    }
+                }
+                // A mixed unit is disabled only for its import edges; known
+                // AOT targets in that same unit remain valid and must execute
+                // through the unit entry rather than being rejected wholesale.
+                if constexpr (DirectTargetPc != 0u) ctx.pc = DirectTargetPc;
+                if constexpr (DirectEntryId != 0u &&
+                              std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t,
+                                                  GuestMemory::AotFastView &>) {
+                    if constexpr (DirectTargetPc == 0x0899F5A4u || DirectTargetPc == 0x089A01FCu) {
+                        std::printf("[CHAIN-DIRECT-AOT] target=0x%08X entry=%u pc_before=0x%08X\n",
+                                    DirectTargetPc, static_cast<unsigned>(DirectEntryId), ctx.pc);
+                        std::fflush(stdout);
+                    }
+                    if (shared_aot_mem != nullptr) Function(*this, ctx, DirectEntryId, *shared_aot_mem);
+                    else { auto _mem = memory_.aot_fast_view(); Function(*this, ctx, DirectEntryId, _mem); }
+                    if constexpr (DirectTargetPc == 0x0899F5A4u || DirectTargetPc == 0x089A01FCu) {
+                        std::printf("[CHAIN-DIRECT-AOT-RET] target=0x%08X pc_after=0x%08X\n", DirectTargetPc, ctx.pc);
+                        std::fflush(stdout);
+                    }
+                    return true;
+                } else if constexpr (DirectEntryId != 0u &&
+                                     std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t>) {
+                    Function(*this, ctx, DirectEntryId);
+                    return true;
+                }
                 return invoke_chained_call(ctx, shared_aot_mem);
             } else {
                 return false;
