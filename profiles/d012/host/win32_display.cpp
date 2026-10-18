@@ -4,6 +4,8 @@
 #include <cstring>
 #include <cstdint>
 #include <fstream>
+#include <filesystem>
+#include <string>
 #include <vector>
 #include "win32_display.hpp"
 
@@ -129,9 +131,9 @@ void display_present(const void *vram_ptr, int buf_width, int fmt) {
         bfh.bfOffBits = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
         bfh.bfSize = bfh.bfOffBits + static_cast<DWORD>(s_rgba.size() * sizeof(std::uint32_t));
         char dump_path[256] = {};
-        std::snprintf(dump_path, sizeof(dump_path),
-                      "C:\\Users\\javi_\\AppData\\Local\\Temp\\psprecomp-guest-frame-%u.bmp",
-                      dump_count);
+        const auto dump_dir = std::filesystem::temp_directory_path();
+        const auto dump_file = dump_dir / ("psprecomp-guest-frame-" + std::to_string(dump_count) + ".bmp");
+        std::snprintf(dump_path, sizeof(dump_path), "%s", dump_file.string().c_str());
         std::ofstream dump(dump_path, std::ios::binary);
         dump.write(reinterpret_cast<const char *>(&bfh), sizeof(bfh));
         dump.write(reinterpret_cast<const char *>(&bih), sizeof(bih));

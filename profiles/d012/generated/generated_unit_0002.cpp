@@ -52427,6 +52427,7 @@ L_08862800:
     ctx.gpr[5] = (static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(aot_mem.aot_load16(ctx.gpr[4] + static_cast<std::uint32_t>(0))))));
     ctx.gpr[6] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(4)));
     jump_target = ctx.gpr[6];
+    { static unsigned trace_vtbl = 0; if (trace_vtbl++ < 8) std::printf("[INIT-VTBL] obj=0x%08X vtbl=0x%08X slot=0x%08X fn=0x%08X table=0x%08X,%08X,%08X,%08X\\n", ctx.gpr[2], aot_mem.aot_load32(ctx.gpr[2] + 340u), ctx.gpr[4], jump_target, aot_mem.aot_load32(0x089CC268u), aot_mem.aot_load32(0x089CC26Cu), aot_mem.aot_load32(0x089CC270u), aot_mem.aot_load32(0x089CC274u)); }
     { std::printf("[DBG] 08862800 vtbl_fptr=0x%08X gpr2=0x%08X\n", jump_target, ctx.gpr[2]); }
     ctx.gpr[31] = (0x0886281Cu);
     ctx.gpr[4] = (ctx.gpr[2] + ctx.gpr[5]);
@@ -52500,7 +52501,7 @@ L_08862854: // FUN_08862854: set read buffer — lookup handle AND read file int
         char staging_path[512];
         if (!f && strncmp(rel, "save/", 5) != 0) {
           snprintf(staging_path, sizeof(staging_path),
-                   "C:/Users/javi_/Documents/GitHub/PSPRecomp/original/%s", rel);
+                   "original/%s", rel);
           f = fopen(staging_path, "rb");
           if (f) {
             strncpy(host_path, staging_path, sizeof(host_path) - 1);

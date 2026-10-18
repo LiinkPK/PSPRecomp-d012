@@ -21,7 +21,7 @@ bool          g_ge_list_executed = false;
 // The render-chain node is not yet a bounded PSP display list. Replaying it
 // as a synthetic 65536-word list causes an unbounded host-side GE loop.
 // Keep the switch explicit so the path can be re-enabled independently.
-constexpr bool kBackupExecuteRenderChain = true;
+constexpr bool kBackupExecuteRenderChain = false;
 constexpr bool kBackupRejectUnboundedGeLists = true;
 constexpr bool kBackupExecuteSyntheticPendingList = false;
 constexpr bool kBackupExecuteSlotLists = true;
@@ -4331,20 +4331,18 @@ L_089C5AC0: // sceDisplaySetFrameBuf(buf, bufWidth, pixelFormat, sync)
           }
         }
       }
-      { // Present: scan VRAM candidates, pick the buffer with the most pixels
+      { // Present the framebuffer selected by the guest, as PPSSPP does.
           const auto &vram = rt.memory().vram_bytes();
-          constexpr std::size_t kFbB = 512u * 272u * 4u;
-          static const std::size_t kCands2[] = {0x00000u,0x44000u,0x88000u,0x110000u,0x154000u};
-          const std::uint8_t *best2 = vram.data(); std::uint32_t best2_nz = 0u; std::size_t best2_off = 0u;
-          for (std::size_t off2 : kCands2) {
-              if (off2 + kFbB > vram.size()) continue;
-              std::uint32_t nz2 = 0; const std::uint8_t *p2 = vram.data()+off2;
-              for (std::size_t i=0;i<kFbB;i+=4) if(p2[i]|p2[i+1]|p2[i+2]|p2[i+3]) ++nz2;
-              if (nz2 > best2_nz) { best2_nz=nz2; best2=p2; best2_off=off2; }
-          }
-          { static std::uint32_t s_fd=0; if(++s_fd<=5u)
-              std::printf("[display] frame %u: presenting VRAM+0x%zX nz=%u fmt=%u w=%u\n",s_fd,best2_off,best2_nz,fmt,buf_w); }
-          d012::display_present(best2, static_cast<int>(buf_w), static_cast<int>(fmt));
+          const d012::DisplayFbInfo &fb = d012::g_display_fb;
+          const std::uint32_t vram_off = fb.vaddr & 0x1FFFFFu;
+          const std::size_t stride = fb.stride > 0 ? fb.stride : buf_w;
+          const std::size_t bpp = fb.fmt == 3 ? 4u : 2u;
+          const std::size_t fb_bytes = stride * 272u * bpp;
+          const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
+              ? vram.data() + vram_off : vram.data();
+          std::printf("[display] guest framebuffer vaddr=0x%08X off=0x%X stride=%zu fmt=%d\n",
+                      fb.vaddr, vram_off, stride, fb.fmt);
+          d012::display_present(fb_ptr, static_cast<int>(stride), fb.fmt);
           d012::display_pump();
       }
     }

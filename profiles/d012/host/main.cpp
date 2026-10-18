@@ -90,12 +90,6 @@ int main(int argc, char *argv[]) {
             // while the extracted disc is kept separately.  Keep the guest's
             // I/O rooted at the actual extracted PSP tree when the executable
             // input directory is only the BIN staging area.
-            if (!std::filesystem::exists(dir / "PSP_GAME")) {
-                const std::filesystem::path extracted_disc =
-                    R"(C:\Users\javi_\Downloads\Dissidia_012_EUR_FULL_UNDUB\Dissidia_012_EUR_FULL_UNDUB)";
-                if (std::filesystem::exists(extracted_disc / "PSP_GAME"))
-                    dir = extracted_disc;
-            }
             runtime.set_game_root(dir);
             d012::g_game_root = dir.string();
         }

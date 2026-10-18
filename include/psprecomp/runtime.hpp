@@ -56,6 +56,7 @@ void set_runtime_thread_identity(std::int32_t uid, const std::string &name) noex
 [[nodiscard]] std::int32_t runtime_thread_uid() noexcept;
 [[nodiscard]] const char *runtime_thread_name() noexcept;
 [[nodiscard]] std::uint32_t runtime_dispatch_pc() noexcept;
+void set_runtime_dispatch_pc(std::uint32_t pc) noexcept;
 [[nodiscard]] RuntimeExecutionContextToken capture_runtime_execution_context() noexcept;
 [[nodiscard]] bool runtime_execution_context_matches(RuntimeExecutionContextToken token) noexcept;
 // Hot direct-chain guard.  The generation increments on every PSP thread
@@ -153,6 +154,12 @@ public:
               std::uint32_t DirectTargetPc = 0u>
     [[nodiscard]] PSPRECOMP_RUNTIME_FORCEINLINE bool invoke_chained_direct(
         AllegrexContext &ctx, GuestMemory::AotFastView *shared_aot_mem = nullptr) {
+        const std::uint32_t previous_dispatch_pc = runtime_dispatch_pc();
+        struct DispatchPcRestore {
+            std::uint32_t previous;
+            ~DispatchPcRestore() { set_runtime_dispatch_pc(previous); }
+        } dispatch_pc_restore{previous_dispatch_pc};
+        if constexpr (DirectTargetPc != 0u) set_runtime_dispatch_pc(DirectTargetPc);
 #if defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
         if (UnitIndex >= kGeneratedUnitFastCapacity || !generated_unit_layout_valid_) {
 #else

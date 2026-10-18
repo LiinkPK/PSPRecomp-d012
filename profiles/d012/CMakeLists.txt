@@ -2,7 +2,7 @@ set(D012_PROFILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 set(D012_ASSET_ROOT "${CMAKE_SOURCE_DIR}/original" CACHE PATH
     "Extracted D012 asset root used to create the self-contained native executable")
-set(D012_DISC_ROOT "C:/Users/javi_/Downloads/Dissidia_012_EUR_FULL_UNDUB/Dissidia_012_EUR_FULL_UNDUB" CACHE PATH
+set(D012_DISC_ROOT "" CACHE PATH
     "Extracted disc root used only at build time for small startup metadata")
 set(D012_EMBED_DIR "${CMAKE_CURRENT_BINARY_DIR}/embedded6")
 set(D012_EMBED_CPP "${D012_EMBED_DIR}/d012_embedded_assets_v2.cpp")

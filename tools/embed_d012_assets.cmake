@@ -11,6 +11,7 @@ set(ASSETS
   "language.bin|language.bin"
   "general_archive/main/main.bin|general_archive/main/main.bin"
   "general_archive/main/JP/main_lang.bin|general_archive/main/JP/main_lang.bin"
+  "save/JP/PARAM.SFO|save/JP/PARAM.SFO"
   "menu_pk_loading_gim_0.bin|menu_pk_loading_gim_0.bin"
   "menu_lpk_loading_gim_0.bin|menu_lpk_loading_gim_0.bin"
   "menu_pk_loading_seq_0.bin|menu_pk_loading_seq_0.bin"

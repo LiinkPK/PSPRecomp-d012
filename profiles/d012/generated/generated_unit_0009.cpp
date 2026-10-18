@@ -24779,6 +24779,7 @@ L_089335E8:
     ctx.gpr[5] = (2205u << 16u);
     ctx.gpr[5] = (aot_mem.aot_load32(ctx.gpr[5] + static_cast<std::uint32_t>(24472)));
     ctx.gpr[4] = (0u | 0u);
+    { static unsigned trace_init_store = 0; if (trace_init_store++ < 4) std::printf("[INIT-TABLE-STORE] dst=0x%08X value=0x%08X table=0x%08X\\n", ctx.gpr[5], ctx.gpr[4], 0x089CC268u); }
     ctx.gpr[31] = (0x089335FCu);
     aot_mem.aot_store8(ctx.gpr[5] + static_cast<std::uint32_t>(0), static_cast<std::uint8_t>(ctx.gpr[4]));
     if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 677u, 0x08867BD4u>(ctx, &aot_mem) && ctx.pc == 0x089335FCu) goto L_089335FC;
@@ -28737,6 +28738,25 @@ L_0893551C:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08935524:
+    { static unsigned s_copy_entry_trace = 0u;
+      if (ctx.gpr[31] != 0x088DDDC0u && s_copy_entry_trace++ < 24u) {
+          std::fprintf(stderr, "[COPY-ENTRY] dst=0x%08X src=0x%08X len=0x%08X ra=0x%08X\\n",
+                       ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[31]);
+          fflush(stderr);
+      }
+    }
+    if (ctx.gpr[31] == 0x088DDDC0u || ctx.gpr[4] == 0x089CC268u) {
+        if (ctx.gpr[4] == 0x089CC268u) {
+            std::fprintf(stderr, "[MPK-TABLE-COPY] dst=0x%08X src=0x%08X len=0x%08X ra=0x%08X s0=0x%08X s3=0x%08X s5=0x%08X\\n",
+                        ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[31], ctx.gpr[16], ctx.gpr[19], ctx.gpr[21]);
+            fflush(stdout);
+        }
+        static unsigned s_mpk_copy_log = 0u;
+        if (s_mpk_copy_log++ < 12u || ctx.gpr[4] == 0x089CC268u) {
+            std::printf("[MPK-COPY] dst=0x%08X src=0x%08X len=0x%08X ra=0x%08X\\n", ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[31]);
+            fflush(stdout);
+        }
+    }
     if (ctx.gpr[4] < 0x08000000u || ctx.gpr[5] < 0x08000000u) {
         std::printf("[MEMCPY-BAD] ra=0x%08X dst=0x%08X src=0x%08X len=0x%08X\\n",
                     ctx.gpr[31], ctx.gpr[4], ctx.gpr[5], ctx.gpr[6]);
