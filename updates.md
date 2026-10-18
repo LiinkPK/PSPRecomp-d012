@@ -1,6 +1,6 @@
 # PSPRecomp – Dissidia 012 (ULES01505.BIN) – Current State
 
-**Last updated:** 17/10/2026 (Session 12)
+**Last updated:** 18/10/2026 (Session 12)
 
 **Goal:** Genuinely boot Dissidia 012’s original startup path and visibly render the authentic Square Enix logo through guest asset I/O → guest VRAM → GE → the native window. A blank window, hard-coded logo, placeholder, or host overlay does not count.
 
@@ -138,9 +138,9 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`–`0x089C6040`). The gener
 
 ---
 
-## Current status (as of 2026-10-15, session 8)
+## Current status (as of 15/10/2026, session 8)
 
-### Session 10 completion checkpoint (2026-10-15)
+### Session 10 completion checkpoint (15/10/2026)
 
 - Fresh `Release` build succeeds.
 - Foreground launch reaches scene activation: pending scene `0x09999794` is promoted to the active scene root and the native window presents frames.
@@ -203,7 +203,7 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`–`0x089C6040`). The gener
 | `0x001ECF3B` unregistered (bad fn ptr) | Guard at `L_0886313C` skips call if outside RAM | `generated_unit_0002.cpp` |
 | `FUN_08872F08` VRAM read crash | Stubbed — reads `0x0A000000` (VRAM mirror), unsupported | `generated_unit_0003.cpp` |
 
-### Session 9 findings (2026-10-15)
+### Session 9 findings (15/10/2026)
 
 #### Init sequence now fully complete
 - All INIT cross-unit call failures resolved. Two new HLE stubs added: `0x08890780` (clears `09B491F8[0,4,12]`, pushes `089D6AB0` to list) and `0x088A4168` (pushes `089D6D3C` to list).
@@ -255,7 +255,7 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`–`0x089C6040`). The gener
 
 After init, the task scheduler fires. Several tasks return to `ra=0x8888505B` (corrupt — float data misread as return address). One task tries to jump to `0x08C13B40` (heap-allocated, not a recompiled function — may be a dynamically-created callback).
 
-### Watchdog finding (2026-10-15)
+### Watchdog finding
 
 - Foreground runs are limited to 30 seconds; stalled runs are terminated.
 - Current loop signature: repeated `ge_exec` calls on three host display-list buffers with spans of `65536`, interleaved with a growing partial-list span; approximately 5,000 executions occur within 30 seconds.
@@ -273,7 +273,7 @@ general_archive/field/field.bin        ← not yet loaded
 general_archive/field/ZQ/field_lang.bin ← not yet loaded
 ```
 
-### Session 7 wrap-up (2026-10-15)
+### Session 7 wrap-up (15/10/2026)
 
 - No completion: the authentic Square Enix logo was not verified in the native window.
 - Preserved the real 397,392-byte MPK as `original/general_archive/main/JP/main_lang.real.mpk` and tested it through the guest archive path.
@@ -281,7 +281,7 @@ general_archive/field/ZQ/field_lang.bin ← not yet loaded
 - The visible foreground window was verified for the empty-stub path; the real-MPK path still exits before authentic logo GE submission.
 - Remaining blocker: reconstruct the MPK object layout and generated cross-unit register/return behavior without synthetic entries or host-side logo injection.
 
-### Session 10 — native rebuild and real startup trace (2026-10-16)
+### Session 10 — native rebuild and real startup trace (16/10/2026)
 
 - Rebuilt `d012_native.exe` after clearing only stale/corrupt Release `.obj` artifacts. The executable is restored at `out/d012/profiles/d012/Release/d012_native.exe`.
 - Visible bounded run confirmed the native program reads the real `main.bin` and `JP/main_lang.bin`, parses the 21-entry MPK, submits real GE lists, and presents the VRAM framebuffer.
@@ -302,7 +302,7 @@ general_archive/field/ZQ/field_lang.bin ← not yet loaded
 - Tested the existing scene-pending activation backup flag. It stalled in the malformed archive/resource path before the frame loop (`1` GE execution, `0` VCB presents, no scene callback), so it was reverted. No logo pixels or host-side overlay were added.
 - Rebuilt the stable executable with the real GE execution flags enabled and synthetic scene-pending activation disabled. Remaining blocker is guest scene/resource activation and emission of the original logo's actual primitive/texture GE list.
 
-### Session 11 — scene callback reachability trace (2026-10-17)
+### Session 11 — scene callback reachability trace (17/10/2026)
 
 - A fresh 30-second native run remains stable: `477` GE executions, `5` VCB presentations, and `0` exceptions/out-of-memory accesses.
 - Added narrow guest-entry diagnostics around `0x0888B21C`, `0x088A2664`, `0x088EA800`, and `sceGuDrawArray`, then rebuilt and ran the native executable.
