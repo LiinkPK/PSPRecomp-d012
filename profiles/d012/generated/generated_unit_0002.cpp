@@ -1,12 +1,14 @@
 ﻿#include "psprecomp/runtime.hpp"
 #include "generated_units.hpp"
 #include "../host/d012_profile.hpp"
+#include "d012_embedded_assets_v2.hpp"
 #include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
 #include <cstring>
 #include <cstdio>
+#include <string>
 
 extern "C" const char* d012_get_game_root();
 
@@ -4924,6 +4926,9 @@ LOCAL_DISPATCH:
     case 0x08863208u: goto L_08863208;
     case 0x0886330Cu: goto L_0886330C;
     case 0x08863354u: goto L_08863354;
+    case 0x088644DCu: goto L_088644DC;
+    case 0x0886450Cu: goto L_0886450C;
+    case 0x0886452Cu: goto L_0886452C;
     case 0x088634BCu: goto L_088634BC;
     case 0x0886357Cu: goto L_0886357C;
     case 0x08863624u: goto L_08863624;
@@ -52465,8 +52470,43 @@ L_08862854: // FUN_08862854: set read buffer — lookup handle AND read file int
         const char* rel = pb;
         if (strncmp(rel, "disc0:/", 7) == 0) rel += 7;
         else if (strncmp(rel, "disc0:", 6) == 0) rel += 6;
-        snprintf(host_path, sizeof(host_path), "%s/%s", root, rel);
+        // Game-relative async paths live below PSP_GAME/USRDIR in an
+        // extracted disc image; save paths remain host/memstick-relative.
+        if (strncmp(rel, "save/", 5) == 0 || strncmp(rel, "PSP_GAME/", 9) == 0)
+          snprintf(host_path, sizeof(host_path), "%s/%s", root, rel);
+        else
+          snprintf(host_path, sizeof(host_path), "%s/PSP_GAME/USRDIR/%s", root, rel);
         FILE* f = fopen(host_path, "rb");
+        // The final executable serves extracted startup assets from its own
+        // image.  This path is deliberately below the guest loader, so the
+        // original resource/VRAM pipeline remains unchanged.
+        std::string embedded_rel = rel;
+        if (embedded_rel.rfind("PSP_GAME/USRDIR/", 0) == 0)
+          embedded_rel.erase(0, 16);
+        auto embedded = d012::embedded::find(embedded_rel);
+        if (!f && embedded.data) {
+          f = std::tmpfile();
+          if (f) {
+            std::fwrite(embedded.data, 1, embedded.size, f);
+            std::rewind(f);
+            std::printf("[08862854] using embedded asset '%s' (%zu bytes)\n", embedded_rel.c_str(), embedded.size);
+            std::strncpy(host_path, "<embedded>", sizeof(host_path) - 1);
+            host_path[sizeof(host_path) - 1] = 0;
+          }
+        }
+        // The repository already contains the real package extraction used by
+        // this profile (original/general_archive/...); use it when the disc
+        // tree correctly lacks the loose packed entry.
+        char staging_path[512];
+        if (!f && strncmp(rel, "save/", 5) != 0) {
+          snprintf(staging_path, sizeof(staging_path),
+                   "C:/Users/javi_/Documents/GitHub/PSPRecomp/original/%s", rel);
+          f = fopen(staging_path, "rb");
+          if (f) {
+            strncpy(host_path, staging_path, sizeof(host_path) - 1);
+            host_path[sizeof(host_path) - 1] = 0;
+          }
+        }
         if (f) {
           uint32_t to_read = buf_size;
           uint32_t offset = 0;
@@ -53502,9 +53542,9 @@ L_08863340:
         const std::uint32_t resource_name_ptr = aot_mem.aot_load32(ctx.gpr[29] + 252u);
         const std::string resource_name = rt.memory().read_c_string(resource_name_ptr);
         const std::string resource_path = std::string("data/") + resource_name;
-        // The formatter's destination is the caller frame's output slot.
-        // Keep the saved registers at +256..268 untouched.
-        const std::uint32_t resource_dst = ctx.gpr[29] + 272u;
+        // The formatter's destination is FUN_0886330C's own local buffer at
+        // sp.  Writing at sp+272 overwrites the caller's saved s0/ra words.
+        const std::uint32_t resource_dst = ctx.gpr[29];
         // Preserve the actual reconstructed pointer across the nested resource call.
         aot_mem.aot_store32(ctx.gpr[29] + 248u, resource_dst);
         for (std::size_t i = 0; i < resource_path.size(); ++i)
@@ -53516,7 +53556,7 @@ L_08863340:
         std::fflush(stdout);
     }
     ctx.gpr[4] = ctx.gpr[18];
-    // The formatter writes its result at the saved frame's output slot (+272).
+    // Pass the reconstructed local buffer to the resource manager.
     ctx.gpr[5] = aot_mem.aot_load32(ctx.gpr[29] + 248u);
     ctx.gpr[6] = ctx.gpr[16];
     ctx.gpr[7] = ctx.gpr[17];
@@ -53580,6 +53620,15 @@ L_088635A4:
 L_088634BC: // FUN_088634BC(param1, name): data/%s resource request
     ctx.gpr[29] -= 272u;
     aot_mem.aot_store32(ctx.gpr[29] + 256u, ctx.gpr[16]);
+    // The caller of this helper has a compact 16-byte frame immediately above
+    // ours.  Keep its saved values out of the formatter/callback scratch area;
+    // the package loader resumes through these words after the resource call.
+    aot_mem.aot_store32(ctx.gpr[29] + 264u, aot_mem.aot_load32(ctx.gpr[29] + 272u));
+    aot_mem.aot_store32(ctx.gpr[29] + 268u, aot_mem.aot_load32(ctx.gpr[29] + 276u));
+    // Keep the filename available after the formatter call.  This helper's
+    // own frame is separate from FUN_0886330C's frame, so its path must be
+    // rebuilt here rather than borrowed from the caller's temporary slot.
+    aot_mem.aot_store32(ctx.gpr[29] + 248u, ctx.gpr[5]);
     ctx.gpr[6] = ctx.gpr[5];
     ctx.gpr[16] = ctx.gpr[4];
     ctx.gpr[5] = 2205u << 16u;
@@ -53591,6 +53640,19 @@ L_088634BC: // FUN_088634BC(param1, name): data/%s resource request
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088634E0u) goto L_088634E0;
     return;
 L_088634E0:
+    {
+        const std::uint32_t resource_name_ptr = aot_mem.aot_load32(ctx.gpr[29] + 248u);
+        const std::string resource_name = rt.memory().read_c_string(resource_name_ptr);
+        const std::string resource_path = std::string("data/") + resource_name;
+        const std::uint32_t resource_dst = ctx.gpr[29];
+        for (std::size_t i = 0; i < resource_path.size(); ++i)
+            rt.memory().store8(resource_dst + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(resource_path[i]));
+        rt.memory().store8(resource_dst + static_cast<std::uint32_t>(resource_path.size()), 0u);
+        std::printf("[RES-PATH-FIX-634BC] nameptr=0x%08X name='%s' dst=0x%08X path='%s'\n",
+                    resource_name_ptr, resource_name.c_str(), resource_dst,
+                    rt.memory().read_c_string(resource_dst).c_str());
+        std::fflush(stdout);
+    }
     ctx.gpr[4] = aot_mem.aot_load32(ctx.gpr[16] + 340u) + 176u;
     ctx.gpr[6] = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(aot_mem.aot_load16(ctx.gpr[4]))));
     ctx.gpr[7] = aot_mem.aot_load32(ctx.gpr[4] + 4u);
@@ -53598,11 +53660,25 @@ L_088634E0:
     ctx.gpr[4] = ctx.gpr[16] + ctx.gpr[6];
     ctx.gpr[31] = 0x088634FCu;
     ctx.pc = ctx.gpr[7];
+    { static unsigned trace_count = 0u; if (trace_count++ < 4u) {
+        std::printf("[RES-634BC-CALL#%u] target=0x%08X a0=0x%08X '%s' a1=0x%08X '%s'\n",
+                    trace_count, ctx.gpr[7], ctx.gpr[4], rt.memory().read_c_string(ctx.gpr[4]).c_str(),
+                    ctx.gpr[5], rt.memory().read_c_string(ctx.gpr[5]).c_str());
+        std::fflush(stdout);
+    } }
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088634FCu) goto L_088634FC;
     return;
 L_088634FC:
+    { static unsigned trace_unwind = 0u; if (trace_unwind++ < 4u) {
+        std::printf("[RES-634BC-UNWIND] sp=0x%08X saved16=0x%08X saved31=0x%08X\n",
+                    ctx.gpr[29], aot_mem.aot_load32(ctx.gpr[29] + 256u),
+                    aot_mem.aot_load32(ctx.gpr[29] + 260u));
+        std::fflush(stdout);
+    } }
     ctx.gpr[16] = aot_mem.aot_load32(ctx.gpr[29] + 256u);
     ctx.gpr[31] = aot_mem.aot_load32(ctx.gpr[29] + 260u);
+    aot_mem.aot_store32(ctx.gpr[29] + 272u, aot_mem.aot_load32(ctx.gpr[29] + 264u));
+    aot_mem.aot_store32(ctx.gpr[29] + 276u, aot_mem.aot_load32(ctx.gpr[29] + 268u));
     jump_target = ctx.gpr[31];
     ctx.gpr[29] += 272u;
     ctx.pc = jump_target;
@@ -55022,6 +55098,80 @@ L_0886408C:
     ctx.pc = jump_target;
     return;
 
+L_088644DC:
+    ctx.gpr[29] -= 272u;
+    aot_mem.aot_store32(ctx.gpr[29] + 256u, ctx.gpr[16]);
+    ctx.gpr[16] = ctx.gpr[4];
+    // FUN_088634BC passes the already reconstructed path as the second
+    // argument.  This function creates a fresh 0x110-byte local buffer for
+    // the nested callbacks; preserve the path in that buffer before the
+    // callback ABI repurposes gpr5 for the new frame pointer.
+    {
+        const std::string incoming_path = rt.memory().read_c_string(ctx.gpr[5]);
+        for (std::size_t i = 0; i < incoming_path.size() && i < 255u; ++i)
+            rt.memory().store8(ctx.gpr[29] + static_cast<std::uint32_t>(i), static_cast<std::uint8_t>(incoming_path[i]));
+        const std::size_t copied = incoming_path.size() < 255u ? incoming_path.size() : 255u;
+        rt.memory().store8(ctx.gpr[29] + static_cast<std::uint32_t>(copied), 0u);
+    }
+    ctx.gpr[4] = aot_mem.aot_load32(ctx.gpr[16] + 340u);
+    ctx.gpr[6] = ctx.gpr[5];
+    // The MIPS `lh a1,0x108(a0)` overwrites the second argument register;
+    // keep the vtable pointer in gpr4 for the following function-pointer
+    // load and place the signed callback offset in gpr6.
+    ctx.gpr[6] = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(aot_mem.aot_load16(ctx.gpr[4] + 264u))));
+    ctx.gpr[7] = aot_mem.aot_load32(ctx.gpr[4] + 4u);
+    // 0x088644F4 loads the callback-object offset into a1 (represented here
+    // by gpr6); gpr5 remains the path-buffer pointer passed as the callback's
+    // second argument.  Adding gpr5 to the object produces an invalid guest
+    // address and bypasses the real nested resource callback.
+    ctx.gpr[4] = ctx.gpr[16] + ctx.gpr[6];
+    aot_mem.aot_store32(ctx.gpr[29] + 260u, ctx.gpr[31]);
+    jump_target = ctx.gpr[7];
+    ctx.gpr[31] = 0x0886450Cu;
+    ctx.gpr[5] = ctx.gpr[29];
+    { static unsigned trace_count = 0u; if (trace_count++ < 4u) {
+        std::printf("[RES-644DC-CALL1#%u] target=0x%08X a0=0x%08X '%s' a1=0x%08X '%s'\n",
+                    trace_count, ctx.gpr[7], ctx.gpr[4], rt.memory().read_c_string(ctx.gpr[4]).c_str(),
+                    ctx.gpr[5], rt.memory().read_c_string(ctx.gpr[5]).c_str());
+        std::fflush(stdout);
+    } }
+    ctx.pc = jump_target;
+    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0886450Cu) goto L_0886450C;
+    return;
+L_0886450C:
+    ctx.gpr[4] = aot_mem.aot_load32(ctx.gpr[16] + 340u) + 192u;
+    ctx.gpr[6] = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(aot_mem.aot_load16(ctx.gpr[4]))));
+    ctx.gpr[7] = aot_mem.aot_load32(ctx.gpr[4] + 4u);
+    ctx.gpr[5] = ctx.gpr[29];
+    ctx.gpr[4] = ctx.gpr[16] + ctx.gpr[6];
+    jump_target = ctx.gpr[7];
+    ctx.gpr[31] = 0x0886452Cu;
+    ctx.gpr[6] = 0u;
+    { static unsigned trace_count = 0u; if (trace_count++ < 4u) {
+        std::printf("[RES-644DC-CALL2#%u] target=0x%08X a0=0x%08X '%s' a1=0x%08X '%s'\n",
+                    trace_count, ctx.gpr[7], ctx.gpr[4], rt.memory().read_c_string(ctx.gpr[4]).c_str(),
+                    ctx.gpr[5], rt.memory().read_c_string(ctx.gpr[5]).c_str());
+        std::fflush(stdout);
+    } }
+    ctx.pc = jump_target;
+    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0886452Cu) goto L_0886452C;
+    return;
+L_0886452C:
+    { static unsigned trace_unwind = 0u; if (trace_unwind++ < 4u) {
+        std::printf("[RES-644DC-UNWIND] sp=0x%08X saved16=0x%08X saved31=0x%08X\n",
+                    ctx.gpr[29], aot_mem.aot_load32(ctx.gpr[29] + 256u),
+                    aot_mem.aot_load32(ctx.gpr[29] + 260u));
+        std::fflush(stdout);
+    } }
+    ctx.gpr[16] = aot_mem.aot_load32(ctx.gpr[29] + 256u);
+    ctx.gpr[31] = aot_mem.aot_load32(ctx.gpr[29] + 260u);
+    jump_target = ctx.gpr[31];
+    ctx.gpr[29] += 272u;
+    ctx.pc = jump_target;
+    if (jump_target == 0x08863354u) goto L_08863354;
+    local_pc = jump_target;
+    if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
+    return;
 L_0886453C:
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(-32));
     goto L_08864540;
@@ -60357,6 +60507,9 @@ void register_generated_unit_2(Runtime &runtime) {
     runtime.register_function(0x08863E90u, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x08863EA4u, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x08863F24u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x088644DCu, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x0886450Cu, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x0886452Cu, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x0886453Cu, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x08864760u, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x08864B04u, &recomp_unit_0002, "recomp_unit_0002");

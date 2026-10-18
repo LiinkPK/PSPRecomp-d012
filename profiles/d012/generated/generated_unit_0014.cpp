@@ -5389,7 +5389,22 @@ L_089C5EA0:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5EA8: // sceIoOpen(path, flags, mode) -> fd or error
+    {
+        static std::uint32_t trace_open = 0u;
+        if (++trace_open <= 4u) {
+            std::printf("[IO-OPEN-GUEST] path=0x%08X flags=0x%08X mode=0x%08X ra=0x%08X\n",
+                        ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[31]);
+            std::fflush(stdout);
+        }
+    }
     ctx.gpr[2] = d012::io_open(rt.memory().read_c_string(ctx.gpr[4]), ctx.gpr[5]);
+    {
+        static std::uint32_t trace_open_ret = 0u;
+        if (++trace_open_ret <= 4u) {
+            std::printf("[IO-OPEN-GUEST-RET] fd=%u ra=0x%08X\n", ctx.gpr[2], ctx.gpr[31]);
+            std::fflush(stdout);
+        }
+    }
     jump_target = ctx.gpr[31];
     ctx.pc = jump_target;
     local_pc = jump_target;

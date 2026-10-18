@@ -310,6 +310,15 @@ bool Runtime::invoke_chained_call(AllegrexContext &ctx, GuestMemory::AotFastView
             }
         }
         if (function == nullptr) {
+            // A generated helper may be registered outside the unit's dense
+            // span after the profile has been patched.  Preserve exact
+            // registration as a safe fallback for generated-unit callbacks.
+            const auto exact = functions_.find(ctx.pc);
+            if (exact != functions_.end() && exact->second.name.starts_with("recomp_unit_")) {
+                function = exact->second.function;
+            }
+        }
+        if (function == nullptr) {
             static std::uint32_t s_lookup_fail = 0u;
             if (++s_lookup_fail <= 32u) std::printf("[CHAIN-LOOKUP-MISS#%u] pc=0x%08X\\n", s_lookup_fail, ctx.pc);
             return false;
@@ -379,10 +388,23 @@ bool Runtime::invoke_chained_unit(AllegrexContext &ctx, std::uint32_t unit_index
 #if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)
     count_pc(ctx.pc);
 #endif
-    if (chain_depth_ >= chain_depth_limit_) return false;
-    if (unit_index >= kGeneratedUnitFastCapacity || !generated_unit_layout_valid_) return false;
+    static std::uint32_t s_chain_rejects = 0u;
+    auto reject = [&](const char *reason) {
+        if (++s_chain_rejects <= 24u) {
+            std::printf("[CHAIN-REJECT#%u] reason=%s unit=%u pc=0x%08X depth=%u/%u layout=%d span=%u base=0x%08X fn=%p\\n",
+                        s_chain_rejects, reason, unit_index, ctx.pc, chain_depth_,
+                        chain_depth_limit_, generated_unit_layout_valid_ ? 1 : 0,
+                        generated_unit_span_, generated_unit_base_,
+                        unit_index < kGeneratedUnitFastCapacity
+                            ? reinterpret_cast<void *>(generated_units_[unit_index]) : nullptr);
+            std::fflush(stdout);
+        }
+    };
+    if (chain_depth_ >= chain_depth_limit_) { reject("depth"); return false; }
+    if (unit_index >= kGeneratedUnitFastCapacity) { reject("unit"); return false; }
+    if (!generated_unit_layout_valid_) { reject("layout"); return false; }
     RecompiledFunction function = generated_units_[unit_index];
-    if (function == nullptr) return false;
+    if (function == nullptr) { reject("function"); return false; }
 
     const std::uint32_t target_pc = ctx.pc;
     const std::uint32_t native_depth = chain_depth_;

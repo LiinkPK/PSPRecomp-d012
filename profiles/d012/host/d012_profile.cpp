@@ -1,4 +1,5 @@
 #include "d012_profile.hpp"
+#include "d012_embedded_assets_v2.hpp"
 #include "ge_render.hpp"
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/elf32.hpp"
@@ -1077,7 +1078,40 @@ std::uint32_t io_open(const std::string &psp_path, std::uint32_t flags) {
     } else {
         host_path = psp_path;
     }
+    // Embedded extracted assets are the production source.  Keep the guest's
+    // PSP path semantics, but serve the bytes from the executable so no ISO or
+    // extracted directory is required after the build.
+    std::string guest_rel = psp_path;
+    for (const char *prefix : {"disc0:", "ms0:", "host0:"}) {
+        const std::size_t n = std::strlen(prefix);
+        if (guest_rel.compare(0, n, prefix) == 0) { guest_rel.erase(0, n); break; }
+    }
+    while (!guest_rel.empty() && (guest_rel.front() == '/' || guest_rel.front() == '\\')) guest_rel.erase(0, 1);
+    if (guest_rel.rfind("PSP_GAME/USRDIR/", 0) == 0) guest_rel.erase(0, 16);
+    if (guest_rel.rfind("data/", 0) == 0) guest_rel.erase(0, 5);
+    auto embedded = d012::embedded::find(guest_rel);
     const char *mode = (flags & 2u) ? ((flags & 0x200u) ? "w+b" : "wb") : "rb";
+    // PACKAGE.BIN is the original monolithic container.  The native build
+    // embeds the extracted assets actually consumed by startup, so opening
+    // the unused container must not reintroduce an ISO/filesystem dependency.
+    if (!embedded.data && guest_rel == "package.bin" && !(flags & 2u)) {
+        FILE *fp = std::tmpfile();
+        if (!fp) return static_cast<std::uint32_t>(-2);
+        const std::uint32_t fd = s_next_fd++;
+        s_fds[fd] = {fp, psp_path};
+        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u container omitted (extracted assets embedded)\n", psp_path.c_str(), fd);
+        return fd;
+    }
+    if (embedded.data && !(flags & 2u)) {
+        FILE *fp = std::tmpfile();
+        if (!fp) return static_cast<std::uint32_t>(-2);
+        std::fwrite(embedded.data, 1, embedded.size, fp);
+        std::rewind(fp);
+        const std::uint32_t fd = s_next_fd++;
+        s_fds[fd] = {fp, psp_path};
+        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u bytes=%zu\n", psp_path.c_str(), fd, embedded.size);
+        return fd;
+    }
     FILE *fp = std::fopen(host_path.c_str(), mode);
     if (!fp) {
         static std::unordered_map<std::string, bool> s_warned;

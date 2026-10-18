@@ -28800,9 +28800,12 @@ L_08871920:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08871938:
+    static std::uint32_t s_pkg_resume_obj = 0u;
+    static std::uint32_t s_pkg_resume_ra = 0u;
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[16]);
     ctx.gpr[16] = (ctx.gpr[4] | 0u);
+    s_pkg_resume_obj = ctx.gpr[16];
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[16] + static_cast<std::uint32_t>(4)));
     ctx.gpr[5] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(340)));
     ctx.gpr[5] = (ctx.gpr[5] + static_cast<std::uint32_t>(40));
@@ -28815,6 +28818,7 @@ L_08871938:
     ctx.gpr[7] = (2u << 16u);
     ctx.gpr[6] = (ctx.gpr[6] + static_cast<std::uint32_t>(27584));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(4), ctx.gpr[31]);
+    s_pkg_resume_ra = ctx.gpr[31];
     jump_target = ctx.gpr[9];
     ctx.gpr[31] = (0x0887197Cu);
     ctx.gpr[7] = (ctx.gpr[7] + static_cast<std::uint32_t>(3980));
@@ -28822,14 +28826,32 @@ L_08871938:
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0887197Cu) goto L_0887197C;
     return;
 L_0887197C:
+    { static unsigned trace_pkg_unwind = 0u; if (trace_pkg_unwind++ < 4u) {
+        std::printf("[PKG-CALLER-ENTRY] sp=0x%08X saved0=0x%08X saved4=0x%08X\n",
+                    ctx.gpr[29], aot_mem.aot_load32(ctx.gpr[29]),
+                    aot_mem.aot_load32(ctx.gpr[29] + 4u));
+        std::fflush(stdout);
+    } }
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[16] + static_cast<std::uint32_t>(4)));
     ctx.gpr[5] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(340)));
     ctx.gpr[5] = (ctx.gpr[5] + static_cast<std::uint32_t>(184));
+    { static std::uint32_t s_pkg_state = 0u; if (s_pkg_state++ < 4u) {
+        const std::uint32_t name_ptr = aot_mem.aot_load32(ctx.gpr[5] + 4u);
+        std::printf("[PKG-STATE#%u] obj=0x%08X table=0x%08X entry=0x%08X nameptr=0x%08X name='%s'\\n",
+                    s_pkg_state, ctx.gpr[4], aot_mem.aot_load32(ctx.gpr[4] + 340u),
+                    ctx.gpr[5], name_ptr, rt.memory().read_c_string(name_ptr).c_str());
+        std::fflush(stdout);
+    } }
     ctx.gpr[7] = (static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(aot_mem.aot_load16(ctx.gpr[5] + static_cast<std::uint32_t>(0))))));
     ctx.gpr[6] = (2205u << 16u);
     ctx.gpr[6] = (aot_mem.aot_load32(ctx.gpr[6] + static_cast<std::uint32_t>(24552)));
     ctx.gpr[4] = (ctx.gpr[4] + ctx.gpr[7]);
     ctx.gpr[7] = (aot_mem.aot_load32(ctx.gpr[5] + static_cast<std::uint32_t>(4)));
+    { static std::uint32_t s_pkg_call = 0u; if (s_pkg_call++ < 4u) {
+        std::printf("[PKG-CALL#%u] a0=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X obj=0x%08X\\n",
+                    s_pkg_call, ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[16]);
+        std::fflush(stdout);
+    } }
     jump_target = ctx.gpr[7];
     { std::printf("[DBG] 0887197C vtbl_fptr=0x%08X\n", jump_target); }
     ctx.gpr[31] = (0x088719A4u);
@@ -28838,9 +28860,15 @@ L_0887197C:
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088719A4u) goto L_088719A4;
     return;
 L_088719A4:
+    { static unsigned trace_pkg_ret = 0u; if (trace_pkg_ret++ < 4u) {
+        std::printf("[PKG-CALLER-RETURN] sp=0x%08X saved0=0x%08X saved4=0x%08X v0=0x%08X\n",
+                    ctx.gpr[29], aot_mem.aot_load32(ctx.gpr[29]),
+                    aot_mem.aot_load32(ctx.gpr[29] + 4u), ctx.gpr[2]);
+        std::fflush(stdout);
+    } }
     aot_mem.aot_store32(ctx.gpr[16] + static_cast<std::uint32_t>(0), ctx.gpr[2]);
-    ctx.gpr[16] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
-    ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(4)));
+    ctx.gpr[16] = s_pkg_resume_obj;
+    ctx.gpr[31] = s_pkg_resume_ra;
     jump_target = ctx.gpr[31];
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(16));
     ctx.pc = jump_target;

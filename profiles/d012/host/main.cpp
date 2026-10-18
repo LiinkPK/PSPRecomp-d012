@@ -3,6 +3,7 @@
 #include "psprecomp/guest_memory.hpp"
 #include "d012_profile.hpp"
 #include "win32_display.hpp"
+#include "d012_embedded_assets_v2.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
@@ -13,6 +14,18 @@
 namespace psprecomp {
 void register_generated_functions(Runtime &runtime);
 void register_ovl_menu_target_functions(Runtime &runtime);
+void recomp_unit_0002(Runtime &runtime, AllegrexContext &ctx);
+}
+
+static void load_menu_overlay_bytes(psprecomp::Runtime &rt, const unsigned char *data, std::size_t size) {
+    if (!data || size < 0x54) return;
+    std::vector<std::uint8_t> b(data, data + size);
+    if (b.size() < 0x54) return;
+    auto u32 = [&](std::size_t p) { return static_cast<std::uint32_t>(b[p]) | (static_cast<std::uint32_t>(b[p+1])<<8) | (static_cast<std::uint32_t>(b[p+2])<<16) | (static_cast<std::uint32_t>(b[p+3])<<24); };
+    const auto off=u32(0x38), va=u32(0x3c), image_size=u32(0x44);
+    if (off > b.size() || image_size > b.size()-off || !rt.memory().contains(va,image_size)) return;
+    for (std::uint32_t i=0; i<image_size; i+=4) rt.memory().store32(va+i,u32(off+i));
+    std::printf("[OVERLAY] embedded menu mapped at 0x%08X size=0x%X\n",va,image_size);
 }
 
 static void load_menu_overlay(psprecomp::Runtime &rt, const std::filesystem::path &path) {
@@ -31,15 +44,31 @@ int main(int argc, char *argv[]) {
     setvbuf(stdout, nullptr, _IONBF, 0);
     setvbuf(stderr, nullptr, _IONBF, 0);
     std::printf("D012 native starting\n");
-    const char *eboot = argc > 1 ? argv[1] : "ULES01505_FFSTJP.BIN";
-    std::printf("Loading: %s\n", eboot);
+    std::filesystem::path embedded_boot;
+    std::string embedded_boot_string;
+    const char *eboot = argc > 1 ? argv[1] : nullptr;
+    if (!eboot) {
+        embedded_boot = std::filesystem::temp_directory_path() / "d012_embedded_boot.bin";
+        auto a = d012::embedded::find("BOOT.bin");
+        std::ofstream out(embedded_boot, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char *>(a.data), static_cast<std::streamsize>(a.size));
+        out.close();
+        embedded_boot_string = embedded_boot.string();
+        eboot = embedded_boot_string.c_str();
+        std::printf("Loading embedded BOOT.bin\n");
+    } else {
+        std::printf("Loading: %s\n", eboot);
+    }
     try {
         psprecomp::Runtime runtime;
         auto elf = psprecomp::Elf32Image::from_file(eboot);
         std::printf("ELF loaded, type=%d\n", (int)elf.type());
         elf.load_and_relocate(runtime.memory());
         std::printf("ELF mapped to guest memory\n");
-        load_menu_overlay(runtime, std::filesystem::path(eboot).parent_path() / "OVL_MENU_APP.ELF");
+        auto embedded_overlay = d012::embedded::find("OVL_MENU_APP.ELF");
+        load_menu_overlay_bytes(runtime, embedded_overlay.data, embedded_overlay.size);
+        if (!embedded_overlay.data)
+            load_menu_overlay(runtime, std::filesystem::path(eboot).parent_path() / "OVL_MENU_APP.ELF");
 
 
         // Set game root to directory containing the BIN so file I/O can find assets
@@ -57,6 +86,16 @@ int main(int argc, char *argv[]) {
                     }
                 }
             }
+            // A decrypted BOOT.bin is commonly kept in PSPRecomp/original,
+            // while the extracted disc is kept separately.  Keep the guest's
+            // I/O rooted at the actual extracted PSP tree when the executable
+            // input directory is only the BIN staging area.
+            if (!std::filesystem::exists(dir / "PSP_GAME")) {
+                const std::filesystem::path extracted_disc =
+                    R"(C:\Users\javi_\Downloads\Dissidia_012_EUR_FULL_UNDUB\Dissidia_012_EUR_FULL_UNDUB)";
+                if (std::filesystem::exists(extracted_disc / "PSP_GAME"))
+                    dir = extracted_disc;
+            }
             runtime.set_game_root(dir);
             d012::g_game_root = dir.string();
         }
@@ -73,6 +112,11 @@ int main(int argc, char *argv[]) {
         psprecomp::register_ovl_menu_target_functions(runtime);
         std::printf("AOT functions registered\n");
         d012::register_hle(runtime);
+        // HLE stub registration can overwrite callback addresses; restore the
+        // real generated helper registrations after that phase.
+        runtime.register_function(0x088644DCu, &psprecomp::recomp_unit_0002, "recomp_unit_0002");
+        runtime.register_function(0x0886450Cu, &psprecomp::recomp_unit_0002, "recomp_unit_0002");
+        runtime.register_function(0x0886452Cu, &psprecomp::recomp_unit_0002, "recomp_unit_0002");
         std::printf("HLE registered\n");
         d012::hle_run_ctors(runtime, elf);
         std::printf("Ctors done\n");

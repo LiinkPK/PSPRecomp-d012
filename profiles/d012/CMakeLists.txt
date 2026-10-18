@@ -1,5 +1,24 @@
 set(D012_PROFILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
+set(D012_ASSET_ROOT "${CMAKE_SOURCE_DIR}/original" CACHE PATH
+    "Extracted D012 asset root used to create the self-contained native executable")
+set(D012_DISC_ROOT "C:/Users/javi_/Downloads/Dissidia_012_EUR_FULL_UNDUB/Dissidia_012_EUR_FULL_UNDUB" CACHE PATH
+    "Extracted disc root used only at build time for small startup metadata")
+set(D012_EMBED_DIR "${CMAKE_CURRENT_BINARY_DIR}/embedded6")
+set(D012_EMBED_CPP "${D012_EMBED_DIR}/d012_embedded_assets_v2.cpp")
+set(D012_EMBED_HPP "${D012_EMBED_DIR}/d012_embedded_assets_v2.hpp")
+file(MAKE_DIRECTORY "${D012_EMBED_DIR}")
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -DOUTPUT_CPP=${D012_EMBED_CPP}
+            -DOUTPUT_HPP=${D012_EMBED_HPP}
+            -DROOT=${D012_ASSET_ROOT}
+            -DDISC_ROOT=${D012_DISC_ROOT}
+            -P "${CMAKE_SOURCE_DIR}/tools/embed_d012_assets.cmake"
+    RESULT_VARIABLE D012_EMBED_RESULT)
+if(NOT D012_EMBED_RESULT EQUAL 0)
+    message(FATAL_ERROR "Could not embed D012 assets")
+endif()
+
 set(D012_GENERATED
 
     "${D012_PROFILE_DIR}/generated/generated_init_funcs.cpp"
@@ -59,12 +78,14 @@ add_executable(d012_native
     "${D012_PROFILE_DIR}/host/d012_profile.cpp"
     "${D012_PROFILE_DIR}/host/win32_display.cpp"
     "${D012_PROFILE_DIR}/host/ge_render.cpp"
+    "${D012_EMBED_CPP}"
 )
 
 target_include_directories(d012_native PRIVATE
     "${D012_PROFILE_DIR}/host"
     "${D012_PROFILE_DIR}/generated"
     "${CMAKE_SOURCE_DIR}/include"
+    "${D012_EMBED_DIR}"
 )
 
 target_link_libraries(d012_native PRIVATE psprecomp_core)
