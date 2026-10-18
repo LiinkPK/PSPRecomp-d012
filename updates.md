@@ -9,7 +9,7 @@
 - **Session 9 â€” Scene discovery:** Init completed and the guest created the Square Enix scene (`0x2713`) in the pending-scene list. Activation and drawable GE commands were still absent.
 - **Session 10 â€” Real startup I/O:** A visible native run loaded the real archive data into guest memory and presented guest VRAM without a host-side logo. GE execution remained state-only (`GE-PRIM=0`, `GE-CLEAR=0`, `GE-VDATA=0`).
 - **Session 11 â€” Dispatch and GE stability:** Cross-unit dispatch and several GE crashes were corrected. The executable reaches real MPK loading and presents a native window, but malformed archive state still prevents scene geometry. The authentic logo remained unverified.
-- **Session 12 â€” MPK corruption traced:** Real embedded assets load and the framebuffer path is active. Write tracing proved that translated `FUN_08935524` overwrites MPK table `0x089CC268` before parsing, producing invalid archive sizes and no GE primitives. No logo was faked or verified; the exact data-flow correction remains.
+- **Session 12 â€” MPK corruption traced and allocator fixed:** Real embedded assets load and the framebuffer path is active. The root cause was empty `sceKernelAllocMemoryBlock`/`sceKernelGetMemoryBlockAddr` stubs at `0x089C5F38`/`0x089C5F20`; they left the effect allocator with a stale address, causing the `0x38AAF` copy to overlap MPK table `0x089CC268`. Both syscall bodies now use the existing guest heap allocator. The fix compiles, but has not yet been run; the logo remains unverified.
 
 **Project:** `C:\path\to\your\folder\PSPRecomp`  
 **Build:** `cmake --build out\d012 --config Release` â†’ binary at `out\d012\profiles\d012\Release\d012_native.exe`  

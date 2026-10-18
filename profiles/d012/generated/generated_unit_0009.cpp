@@ -28745,8 +28745,9 @@ L_08935524:
           fflush(stderr);
       }
     }
-    if (ctx.gpr[31] == 0x088DDDC0u || ctx.gpr[4] == 0x089CC268u) {
-        if (ctx.gpr[4] == 0x089CC268u) {
+    if (ctx.gpr[31] == 0x088DDDC0u ||
+        (ctx.gpr[4] < 0x089CC278u && (ctx.gpr[4] + ctx.gpr[6]) > 0x089CC268u)) {
+        if (ctx.gpr[4] < 0x089CC278u && (ctx.gpr[4] + ctx.gpr[6]) > 0x089CC268u) {
             std::fprintf(stderr, "[MPK-TABLE-COPY] dst=0x%08X src=0x%08X len=0x%08X ra=0x%08X s0=0x%08X s3=0x%08X s5=0x%08X\\n",
                         ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[31], ctx.gpr[16], ctx.gpr[19], ctx.gpr[21]);
             fflush(stdout);

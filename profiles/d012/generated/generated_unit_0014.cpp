@@ -5507,6 +5507,12 @@ L_089C5F18:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5F20:
+    // sceKernelGetMemoryBlockAddr(uid, addr_out): resolve the guest heap
+    // block created by sceKernelAllocMemoryBlock and write its address.
+    if (ctx.gpr[5] != 0u) {
+        aot_mem.aot_store32(ctx.gpr[5], d012::hle_get_addr(ctx.gpr[4]));
+    }
+    ctx.gpr[2] = 0u;
     jump_target = ctx.gpr[31];
     // nop
     ctx.pc = jump_target;
@@ -5528,6 +5534,9 @@ L_089C5F30:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5F38:
+    // sceKernelAllocMemoryBlock(name, type, size, params).
+    ctx.gpr[2] = d012::hle_alloc(ctx.gpr[6]);
+    if (ctx.gpr[2] == 0u) ctx.gpr[2] = 0xFFFFFFFFu;
     jump_target = ctx.gpr[31];
     // nop
     ctx.pc = jump_target;

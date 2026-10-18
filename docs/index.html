@@ -188,7 +188,7 @@
         </div>
         <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
           <span class="font-bold text-tokyo-accent min-w-[3rem]">S12</span>
-          <span class="text-tokyo-muted"><strong class="text-tokyo-text">Resource-return tracing.</strong> Confirmed the rebuilt native window remains stable and presents guest VRAM, while the first package read succeeds. Corrected the render-chain continuation register and traced the remaining startup blocker to the <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">FUN_0886330C</code> resource-path/stack handoff: the generated formatter still passes truncated <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">data/s</code> instead of the reconstructed <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">data/package_info.bin</code>. The authentic logo is still not verified.</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">MPK allocator tracing.</strong> Real embedded assets and the native framebuffer path are active. A large resource copy starts at guest address <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08993940</code> and overlaps MPK table <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x089CC268</code>, causing invalid archive sizes and zero drawable GE primitives. The allocator/free-list path remains to be corrected; no fake logo was added.</span>
         </div>
       </div>
     </section>
@@ -231,7 +231,7 @@
     </section>
 
     <footer class="text-center text-xs text-tokyo-muted py-4 border-t border-tokyo-border">
-      PSPRecomp · Dissidia 012 PC Port · Last updated: 17/10/2026 ·
+      PSPRecomp · Dissidia 012 PC Port · Last updated: 18/10/2026 ·
       <a href="https://github.com/LiinkPK/PSPRecomp-d012" target="_blank" rel="noopener" class="hover:text-tokyo-accent">github.com/LiinkPK/PSPRecomp-d012</a>
     </footer>
 
