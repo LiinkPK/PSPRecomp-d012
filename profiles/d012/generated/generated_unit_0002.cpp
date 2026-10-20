@@ -1,4 +1,4 @@
-﻿#include "psprecomp/runtime.hpp"
+#include "psprecomp/runtime.hpp"
 #include "generated_units.hpp"
 #include "../host/d012_profile.hpp"
 #include "d012_embedded_assets_v2.hpp"
@@ -5043,6 +5043,19 @@ LOCAL_DISPATCH:
     case 0x08863EE4u: goto L_08863EE4;
     case 0x08863F0Cu: goto L_08863F0C;
     case 0x08863F24u: goto L_08863F24;
+    case 0x08863F70u: goto L_08863F70;
+    case 0x08863F90u: goto L_08863F90;
+    case 0x08863FB4u: goto L_08863FB4;
+    case 0x08863FE4u: goto L_08863FE4;
+    case 0x08864004u: goto L_08864004;
+    case 0x08864054u: goto L_08864054;
+    case 0x0886407Cu: goto L_0886407C;
+    case 0x08864584u: goto L_08864584;
+    case 0x08864594u: goto L_08864594;
+    case 0x088647A4u: goto L_088647A4;
+    case 0x088647B4u: goto L_088647B4;
+    case 0x08864B28u: goto L_08864B28;
+    case 0x08864B30u: goto L_08864B30;
     case 0x0886453Cu: goto L_0886453C;
     case 0x08864760u: goto L_08864760;
     case 0x08864B04u: goto L_08864B04;
@@ -53614,9 +53627,9 @@ L_088635A4:
     ctx.gpr[31] = aot_mem.aot_load32(ctx.gpr[29] + 4u);
     jump_target = ctx.gpr[31];
     ctx.gpr[29] = ctx.gpr[29] + 16u;
+    ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-    ctx.pc = jump_target;
     return;
 L_088634BC: // FUN_088634BC(param1, name): data/%s resource request
     ctx.gpr[29] -= 272u;
@@ -53667,7 +53680,8 @@ L_088634E0:
                     ctx.gpr[5], rt.memory().read_c_string(ctx.gpr[5]).c_str());
         std::fflush(stdout);
     } }
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088634FCu) goto L_088634FC;
+    // ARCH-SYNTH: target 0x088644DC is in unit 2 (poisoned); use direct.
+    if (rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x088644DCu>(ctx, &aot_mem) && ctx.pc == 0x088634FCu) goto L_088634FC;
     return;
 L_088634FC:
     { static unsigned trace_unwind = 0u; if (trace_unwind++ < 4u) {
@@ -54860,12 +54874,20 @@ L_08863F64:
     goto L_08863F68;
 L_08863F68:
     jump_target = ctx.gpr[7];
+    { static unsigned s_rescb_trace = 0u;
+      if (s_rescb_trace++ < 4u)
+          std::printf("[RESCB-OPEN] func_ptr=0x%08X a4=0x%08X\n", jump_target, ctx.gpr[4]);
+      std::fflush(stdout); }
     ctx.set_gpr(31, 0x08863F70u);
     ctx.set_gpr(6, ctx.gpr[21] | 0u);
     ctx.pc = jump_target;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08863F70u) goto L_08863F70;
+    // ARCH-SYNTH: 0x0886453C is same unit 2.  invoke_chained_direct resets local_transfers
+    // and runs the full callee chain (including the L_08863F70 continuation inline).
+    // When it returns, ctx.pc holds the outer caller's ra (already correct for re-dispatch).
+    rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x0886453Cu>(ctx, &aot_mem);
     return;
 L_08863F70:
+    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[F70-HIT] fd=gpr2=0x%08X gpr21=0x%08X\n", ctx.gpr[2], ctx.gpr[21]); std::fflush(stdout); }
     ctx.set_gpr(20, ctx.gpr[2] | 0u);
     goto L_08863F74;
 L_08863F74:
@@ -54891,7 +54913,8 @@ L_08863F88:
     ctx.set_gpr(31, 0x08863F90u);
     ctx.set_gpr(4, ctx.gpr[20] | 0u);
     ctx.pc = 0x089C5D50u;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08863F90u) goto L_08863F90;
+    // ARCH-SYNTH: 0x089C5D50 is in unit 14; use direct cross-unit call.
+    if (rt.invoke_chained_direct<&recomp_unit_0014_entry, 14u, 292u, 0x089C5D50u>(ctx, &aot_mem) && ctx.pc == 0x08863F90u) goto L_08863F90;
     return;
 L_08863F90:
     { const bool branch_taken = static_cast<std::int32_t>(ctx.gpr[2]) >= 0;
@@ -54918,10 +54941,12 @@ L_08863FA8:
     goto L_08863FAC;
 L_08863FAC:
     jump_target = ctx.gpr[7];
+    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[FAC-CALL] target=0x%08X\n", jump_target); std::fflush(stdout); }
     ctx.set_gpr(31, 0x08863FB4u);
     ctx.set_gpr(4, ctx.gpr[18] + ctx.gpr[6]);
     ctx.pc = jump_target;
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08863FB4u) goto L_08863FB4;
+    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[FAC-FAIL] target=0x%08X ctx.pc=0x%08X\n", jump_target, ctx.pc); std::fflush(stdout); }
     return;
 L_08863FB4:
     { const bool branch_taken = 0u == 0u;
@@ -54957,10 +54982,13 @@ L_08863FD8:
     goto L_08863FDC;
 L_08863FDC:
     jump_target = ctx.gpr[9];
+    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[FDC-CALL] target=0x%08X a0=0x%08X a4=0x%08X a5=0x%08X a6=0x%08X a7=0x%08X fd=0x%08X\n", jump_target, ctx.gpr[4], ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7], ctx.gpr[20]); std::fflush(stdout); }
     ctx.set_gpr(31, 0x08863FE4u);
     ctx.set_gpr(8, ctx.gpr[21] | 0u);
     ctx.pc = jump_target;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08863FE4u) goto L_08863FE4;
+    // ARCH-SYNTH: target is always 0x08864760 (READ-WRAPPER, same unit 2); use direct.
+    // Full chain runs inline; ctx.pc will be outer caller's ra on return, not intermediate.
+    rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x08864760u>(ctx, &aot_mem);
     return;
 L_08863FE4:
     ctx.set_gpr(4, rt.memory().aot_load32(ctx.gpr[18] + static_cast<std::uint32_t>(340)));
@@ -54985,7 +55013,9 @@ L_08863FFC:
     ctx.set_gpr(31, 0x08864004u);
     ctx.set_gpr(5, ctx.gpr[20] | 0u);
     ctx.pc = jump_target;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08864004u) goto L_08864004;
+    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[3FFC-CALL] target=0x%08X gpr4=0x%08X gpr5=0x%08X gpr18=0x%08X\n", jump_target, ctx.gpr[4], ctx.gpr[5], ctx.gpr[18]); std::fflush(stdout); }
+    // ARCH-SYNTH: target 0x08864B04 is in unit 2 (poisoned); use direct.
+    rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x08864B04u>(ctx, &aot_mem);
     return;
 L_08864004:
     ctx.set_gpr(2, ctx.gpr[19] | 0u);
@@ -55014,9 +55044,9 @@ L_08864020:
 L_08864024:
     jump_target = ctx.gpr[31];
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(32));
+    ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-    ctx.pc = jump_target;
     return;
 L_0886402C:
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(-272));
@@ -55094,9 +55124,9 @@ L_08864088:
 L_0886408C:
     jump_target = ctx.gpr[31];
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(272));
+    ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-    ctx.pc = jump_target;
     return;
 
 L_088644DC:
@@ -55136,9 +55166,12 @@ L_088644DC:
                     ctx.gpr[5], rt.memory().read_c_string(ctx.gpr[5]).c_str());
         std::fflush(stdout);
     } }
-    ctx.pc = jump_target;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0886450Cu) goto L_0886450C;
-    return;
+    // ARCH-SYNTH: CALL1 target is null (0x00000000); skip it, jump to L_0886450C.
+    if (jump_target != 0u) {
+        if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0886450Cu) goto L_0886450C;
+        return;
+    }
+    goto L_0886450C;
 L_0886450C:
     ctx.gpr[4] = aot_mem.aot_load32(ctx.gpr[16] + 340u) + 192u;
     ctx.gpr[6] = static_cast<std::uint32_t>(static_cast<std::int32_t>(static_cast<std::int16_t>(aot_mem.aot_load16(ctx.gpr[4]))));
@@ -55155,7 +55188,8 @@ L_0886450C:
         std::fflush(stdout);
     } }
     ctx.pc = jump_target;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0886452Cu) goto L_0886452C;
+    // ARCH-SYNTH: target 0x0886453C is in unit 2 (poisoned); use direct.
+    if (rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x0886453Cu>(ctx, &aot_mem) && ctx.pc == 0x0886452Cu) goto L_0886452C;
     return;
 L_0886452C:
     { static unsigned trace_unwind = 0u; if (trace_unwind++ < 4u) {
@@ -55174,6 +55208,11 @@ L_0886452C:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_0886453C:
+    { static unsigned s_t=0u; if(s_t++<4u) {
+        std::printf("[453C] a0=0x%08X(path_str='%s') a1=0x%08X a2=0x%08X gpr6=0x%08X gpr7=0x%08X gpr8=0x%08X\n",
+            ctx.gpr[4], rt.memory().read_c_string(ctx.gpr[4]).c_str(),
+            ctx.gpr[5], ctx.gpr[6], ctx.gpr[6], ctx.gpr[7], ctx.gpr[8]);
+        std::fflush(stdout); } }
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(-32));
     goto L_08864540;
 L_08864540:
@@ -55224,12 +55263,16 @@ L_08864578:
     ctx.set_gpr(4, ctx.gpr[17] | 0u);
     goto L_0886457C;
 L_0886457C:
+    { static unsigned s_u=0u; if(s_u++<4u) { std::printf("[457C] pre-UMD a4_path=0x%08X('%s') gpr16=0x%08X gpr19=0x%08X\n", ctx.gpr[4], rt.memory().read_c_string(ctx.gpr[4]).c_str(), ctx.gpr[16], ctx.gpr[19]); std::fflush(stdout); } }
     ctx.set_gpr(31, 0x08864584u);
     ctx.set_gpr(5, 0u | 1u);
     ctx.pc = 0x08864B68u;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08864584u) goto L_08864584;
+    // ARCH-SYNTH: 0x08864B68 (UMD ready check) is in unit 3; use direct cross-unit call.
+    if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 5u, 0x08864B68u>(ctx, &aot_mem) && ctx.pc == 0x08864584u) goto L_08864584;
+    { static unsigned s_f=0u; if(s_f++<4u) { std::printf("[457C] UMD chain FAILED pc=0x%08X\n", ctx.pc); std::fflush(stdout); } }
     return;
 L_08864584:
+    { static unsigned s_v=0u; if(s_v++<4u) { std::printf("[4584] post-UMD v0=0x%08X, calling sceIoOpen with a0=0x%08X('%s') a1=0x%08X\n", ctx.gpr[2], ctx.gpr[16], rt.memory().read_c_string(ctx.gpr[16]).c_str(), ctx.gpr[19]); std::fflush(stdout); } }
     ctx.set_gpr(4, ctx.gpr[16] | 0u);
     goto L_08864588;
 L_08864588:
@@ -55239,7 +55282,10 @@ L_0886458C:
     ctx.set_gpr(31, 0x08864594u);
     ctx.set_gpr(6, 0u | 0u);
     ctx.pc = 0x089C5EA8u;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08864594u) goto L_08864594;
+    // ARCH-SYNTH: sceIoOpen is in unit 14; invoke_chained_call can't cross units, use direct.
+    { bool _r = rt.invoke_chained_direct<&recomp_unit_0014_entry, 14u, 330u, 0x089C5EA8u>(ctx, &aot_mem);
+      static unsigned s_t=0u; if(s_t++<4u) std::printf("[IOOPEN-DIRECT] ret=%d pc=0x%08X fd=%d\n", (int)_r, ctx.pc, (int)ctx.gpr[2]); std::fflush(stdout);
+      if (_r && ctx.pc == 0x08864594u) goto L_08864594; }
     return;
 L_08864594:
     { const bool branch_taken = static_cast<std::int32_t>(ctx.gpr[2]) < 0;
@@ -55301,10 +55347,11 @@ L_088645D0:
     goto L_088645D4;
 L_088645D4:
     jump_target = ctx.gpr[31];
+    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[45D4-RET] ra=gpr31=0x%08X sp=0x%08X sp+20=0x%08X\n", jump_target, ctx.gpr[29], ctx.gpr[29]+20); std::fflush(stdout); }
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(32));
+    ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-    ctx.pc = jump_target;
     return;
 
 L_08864760:
@@ -55361,7 +55408,8 @@ L_0886479C:
     ctx.set_gpr(31, 0x088647A4u);
     ctx.set_gpr(5, 0u | 3u);
     ctx.pc = 0x08864B68u;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088647A4u) goto L_088647A4;
+    // ARCH-SYNTH: 0x08864B68 (UMD ready check) is in unit 3; use direct cross-unit call.
+    if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 5u, 0x08864B68u>(ctx, &aot_mem) && ctx.pc == 0x088647A4u) goto L_088647A4;
     return;
 L_088647A4:
     ctx.set_gpr(4, ctx.gpr[18] | 0u);
@@ -55373,7 +55421,8 @@ L_088647AC:
     ctx.set_gpr(31, 0x088647B4u);
     ctx.set_gpr(6, ctx.gpr[16] | 0u);
     ctx.pc = 0x089C5E30u;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088647B4u) goto L_088647B4;
+    // ARCH-SYNTH: sceIoRead is in unit 14; use direct cross-unit call.
+    if (rt.invoke_chained_direct<&recomp_unit_0014_entry, 14u, 315u, 0x089C5E30u>(ctx, &aot_mem) && ctx.pc == 0x088647B4u) goto L_088647B4;
     return;
 L_088647B4:
     { const bool branch_taken = static_cast<std::int32_t>(ctx.gpr[2]) >= 0;
@@ -55431,9 +55480,9 @@ L_088647EC:
 L_088647F0:
     jump_target = ctx.gpr[31];
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(32));
+    ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-    ctx.pc = jump_target;
     return;
 
 L_08864B04:
@@ -55461,13 +55510,15 @@ L_08864B20:
     ctx.set_gpr(31, 0x08864B28u);
     ctx.set_gpr(5, 0u | 8u);
     ctx.pc = 0x08864B68u;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08864B28u) goto L_08864B28;
+    // ARCH-SYNTH: 0x08864B68 (UMD check) is in unit 3; use direct cross-unit call.
+    if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 5u, 0x08864B68u>(ctx, &aot_mem) && ctx.pc == 0x08864B28u) goto L_08864B28;
     return;
 L_08864B28:
     ctx.set_gpr(31, 0x08864B30u);
     ctx.set_gpr(4, ctx.gpr[16] | 0u);
     ctx.pc = 0x089C5E48u;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08864B30u) goto L_08864B30;
+    // ARCH-SYNTH: sceIoClose is in unit 14; use direct cross-unit call.
+    if (rt.invoke_chained_direct<&recomp_unit_0014_entry, 14u, 318u, 0x089C5E48u>(ctx, &aot_mem) && ctx.pc == 0x08864B30u) goto L_08864B30;
     return;
 L_08864B30:
     { const bool branch_taken = ctx.gpr[2] != 0u;
@@ -55505,9 +55556,9 @@ L_08864B50:
 L_08864B54:
     jump_target = ctx.gpr[31];
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(16));
+    ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-    ctx.pc = jump_target;
     return;
 
 }
@@ -60508,6 +60559,19 @@ void register_generated_unit_2(Runtime &runtime) {
     runtime.register_function(0x08863E90u, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x08863EA4u, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x08863F24u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08863F70u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08863F90u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08863FB4u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08863FE4u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08864004u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08864054u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x0886407Cu, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08864584u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08864594u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x088647A4u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x088647B4u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08864B28u, &recomp_unit_0002, "recomp_unit_0002");
+    runtime.register_function(0x08864B30u, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x088644DCu, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x0886450Cu, &recomp_unit_0002, "recomp_unit_0002");
     runtime.register_function(0x0886452Cu, &recomp_unit_0002, "recomp_unit_0002");

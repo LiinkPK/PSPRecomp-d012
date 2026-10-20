@@ -90,8 +90,17 @@ int main(int argc, char *argv[]) {
             // while the extracted disc is kept separately.  Keep the guest's
             // I/O rooted at the actual extracted PSP tree when the executable
             // input directory is only the BIN staging area.
+            // If the resolved dir still has no PSP_GAME, try the known extracted ISO location.
+            static const std::filesystem::path kFallbackGameRoot =
+                "C:/Users/javi_/Downloads/Dissidia_012_EUR_FULL_UNDUB/Dissidia_012_EUR_FULL_UNDUB";
+            if (!std::filesystem::exists(dir / "PSP_GAME") &&
+                std::filesystem::exists(kFallbackGameRoot / "PSP_GAME")) {
+                dir = kFallbackGameRoot;
+                std::printf("[GAME-ROOT] using fallback: %s\n", dir.string().c_str());
+            }
             runtime.set_game_root(dir);
             d012::g_game_root = dir.string();
+            std::printf("[GAME-ROOT] set to: %s\n", d012::g_game_root.c_str());
         }
 
         // Scan for embedded syscall stubs BEFORE generated functions so

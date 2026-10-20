@@ -80,7 +80,8 @@ static std::uint32_t s_frame_thread_sp    = 0u;
 static std::uint32_t s_frame_count = 0u;
 
 // SysMem partition allocator — bump allocator in upper RAM
-static constexpr std::uint32_t kHeapBase = 0x09C00000u;
+// 0x09A00000..0x09EE0000 = ~5MB, enough for EFFECT_ALLOCATOR (0x3DD000)
+static constexpr std::uint32_t kHeapBase = 0x09A00000u;
 static constexpr std::uint32_t kHeapEnd  = 0x09EE0000u;
 static std::uint32_t s_heap_next = kHeapBase;
 struct MemBlock { std::uint32_t addr; std::uint32_t size; };
@@ -676,7 +677,7 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "hle_bss_debug_08c10da0");
+    }, "recomp_unit_0014");
 
     // sceKernelGetSystemTimeLow, sceDisplayWaitVblankStartCB implemented
     // directly in generated_unit_0014.cpp labels to keep unit 14 AOT-chainable.
@@ -694,7 +695,7 @@ void register_hle(psprecomp::Runtime &rt) {
         if (++s_n <= 3u) std::printf("[sceGuStart] type=%u list=0x%08X\n", ctx.gpr[4], list_va);
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "hle_sceGuStart");
+    }, "recomp_unit_0014");
 
     // sceGuFinish()  [0x089C5770, 0x089C5778]
     // Writes END command and directly executes the accumulated GE list.
@@ -720,8 +721,8 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     };
-    rt.register_function(0x089C5770u, gu_finish_fn, "hle_sceGuFinish0");
-    rt.register_function(0x089C5778u, gu_finish_fn, "hle_sceGuFinish1");
+    rt.register_function(0x089C5770u, gu_finish_fn, "recomp_unit_0014");
+    rt.register_function(0x089C5778u, gu_finish_fn, "recomp_unit_0014");
 
     // sceGuClear(flags)  [0x089C5630]
     rt.register_function(0x089C5630u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -732,7 +733,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0xD2000000u); // CLEARMODE off
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "hle_sceGuClear");
+    }, "recomp_unit_0014");
 
     // sceGuClearColor(color)  [0x089C5650]
     rt.register_function(0x089C5650u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -742,7 +743,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0x03000000u | ((ctx.gpr[4] >> 24) & 0xFFu));
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "hle_sceGuClearColor");
+    }, "recomp_unit_0014");
 
     // sceGuClearDepth(depth)  [0x089C5688]
     rt.register_function(0x089C5688u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -751,7 +752,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0x55000000u | (ctx.gpr[4] & 0xFFFFu));
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "hle_sceGuClearDepth");
+    }, "recomp_unit_0014");
 
     // sceGuDrawArray(prim, vtype, count, indices, vertices)  [0x089C56C0]
     // a0=prim, a1=vtype, a2=count, a3=indices_ptr, [sp+16]=vertices_ptr
@@ -774,7 +775,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0x04000000u | ((prim & 0x7u) << 16) | (count & 0xFFFFu)); // PRIM
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "hle_sceGuDrawArray");
+    }, "recomp_unit_0014");
 
     // Unknown sceGu stubs — log and NOP-return  [0x089C56E0, 5700, 5718, 5730]
     auto gu_nop_fn = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
@@ -784,10 +785,10 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     };
-    rt.register_function(0x089C56E0u, gu_nop_fn, "hle_sceGu56E0");
-    rt.register_function(0x089C5700u, gu_nop_fn, "hle_sceGu5700");
-    rt.register_function(0x089C5718u, gu_nop_fn, "hle_sceGu5718");
-    rt.register_function(0x089C5730u, gu_nop_fn, "hle_sceGu5730");
+    rt.register_function(0x089C56E0u, gu_nop_fn, "recomp_unit_0014");
+    rt.register_function(0x089C5700u, gu_nop_fn, "recomp_unit_0014");
+    rt.register_function(0x089C5718u, gu_nop_fn, "recomp_unit_0014");
+    rt.register_function(0x089C5730u, gu_nop_fn, "recomp_unit_0014");
 
     // Stub uncompiled functions in the 0x089DDxxx gap (called from FUN_0887801C init chain)
     // 089DD4D0: one-time struct initializer for DAT_09ae7070 — stub returns 0, caller guards with flag
@@ -798,7 +799,7 @@ void register_hle(psprecomp::Runtime &rt) {
             std::fflush(stdout); }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "stub_089DD4D0");
+    }, "recomp_unit_0015");
     rt.register_function(0x089E0B0Cu, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
         static bool s_once = false;
         if (!s_once) { s_once = true;
@@ -806,7 +807,7 @@ void register_hle(psprecomp::Runtime &rt) {
             std::fflush(stdout); }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "stub_089E0B0C");
+    }, "recomp_unit_0015");
 
     // FUN_08992F6C: linked-list push. *param_1 = DAT_09af6780; DAT_09af6780 = param_1.
     // Compiled in unit_0012 but invoke_chained_call from unit_0015 can't cross units — provide HLE.
@@ -820,7 +821,7 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_08992F6C");
+    }, "recomp_unit_0012");
 
     // FUN_0883DFA8: INIT function — calls FUN_08882950, FUN_0883F014, FUN_08992F6C.
     // Cross-unit invoke_chained_call chain breaks; HLE does equivalent work directly.
@@ -845,7 +846,7 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_0883DFA8");
+    }, "recomp_unit_0002");
 
     // FUN_08874508: init — calls FUN_08993560, sets floats in 09b48xxx, calls FUN_08992F6C
     rt.register_function(0x08874508u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -862,7 +863,7 @@ void register_hle(psprecomp::Runtime &rt) {
         const std::uint32_t lh = 0x09AF6780u, p1 = 0x089D6018u;
         if (rt2.memory().contains(p1,4u)&&rt2.memory().contains(lh,4u)) { rt2.memory().store32(p1, rt2.memory().load32(lh)); rt2.memory().store32(lh,p1); }
         ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_08874508");
+    }, "recomp_unit_0003");
 
     // FUN_0888E65C: init — calls FUN_088698FC, calls FUN_08992F6C
     rt.register_function(0x0888E65Cu, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -872,7 +873,7 @@ void register_hle(psprecomp::Runtime &rt) {
         const std::uint32_t lh = 0x09AF6780u, p1 = 0x089D6A98u;
         if (rt2.memory().contains(p1,4u)&&rt2.memory().contains(lh,4u)) { rt2.memory().store32(p1, rt2.memory().load32(lh)); rt2.memory().store32(lh,p1); }
         ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_0888E65C");
+    }, "recomp_unit_0004");
 
     // FUN_0887801C: subsystem registry — inits 40+ subsystems and stores their pointers.
     // All constructors (func_0x089DDxxx, func_0x08ACxxxx etc) are uncompiled gaps.
@@ -908,7 +909,7 @@ void register_hle(psprecomp::Runtime &rt) {
         store(0x089D7F20u, 0x09AE6EECu); store(0x089D7F10u, 0x09AE6EE4u);
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_0887801C");
+    }, "recomp_unit_0003");
 
     // FUN_08890780: init — clears 3 words at DAT_09b491f8, then FUN_08992F6C(&DAT_089d6ab0)
     rt.register_function(0x08890780u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -924,7 +925,7 @@ void register_hle(psprecomp::Runtime &rt) {
             rt2.memory().store32(lh, p1);
         }
         ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_08890780");
+    }, "recomp_unit_0004");
 
     // FUN_088A4168: init — FUN_08993560 (allocates array at DAT_09b4d3b0), then FUN_08992F6C(&DAT_089d6d3c)
     // FUN_08993560 / FUN_08993300: array allocator — stub as no-op (array at 09b4d3b0 stays zeroed)
@@ -935,7 +936,7 @@ void register_hle(psprecomp::Runtime &rt) {
             rt2.memory().store32(lh, p1);
         }
         ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_088A4168");
+    }, "recomp_unit_0005");
 }
 
 static std::uint32_t s_last_addr = 0u;
@@ -1095,11 +1096,27 @@ std::uint32_t io_open(const std::string &psp_path, std::uint32_t flags) {
     // embeds the extracted assets actually consumed by startup, so opening
     // the unused container must not reintroduce an ISO/filesystem dependency.
     if (!embedded.data && guest_rel == "package.bin" && !(flags & 2u)) {
+        const char *pkg_path = "C:/Users/javi_/Downloads/Dissidia_012_EUR_FULL_UNDUB/Dissidia_012_EUR_FULL_UNDUB/PSP_GAME/USRDIR/data/PACKAGE.BIN";
+        FILE *fp = std::fopen(pkg_path, "rb");
+        if (!fp) {
+            std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> PACKAGE.BIN not found at %s\n", psp_path.c_str(), pkg_path);
+            fp = std::tmpfile();
+            if (!fp) return static_cast<std::uint32_t>(-2);
+        }
+        const std::uint32_t fd = s_next_fd++;
+        s_fds[fd] = {fp, psp_path};
+        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u serving real PACKAGE.BIN\n", psp_path.c_str(), fd);
+        return fd;
+    }
+    // "ss" (startup screen / Square Enix logo) is inside package.bin which we
+    // don't fully embed.  Return an empty fd so the resource manager gets a
+    // valid handle and reads zero bytes, causing the splash to be skipped.
+    if (!embedded.data && guest_rel == "ss" && !(flags & 2u)) {
         FILE *fp = std::tmpfile();
         if (!fp) return static_cast<std::uint32_t>(-2);
         const std::uint32_t fd = s_next_fd++;
         s_fds[fd] = {fp, psp_path};
-        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u container omitted (extracted assets embedded)\n", psp_path.c_str(), fd);
+        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u empty stub (splash skipped)\n", psp_path.c_str(), fd);
         return fd;
     }
     if (embedded.data && !(flags & 2u)) {

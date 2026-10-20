@@ -21,9 +21,9 @@ bool          g_ge_list_executed = false;
 // The render-chain node is not yet a bounded PSP display list. Replaying it
 // as a synthetic 65536-word list causes an unbounded host-side GE loop.
 // Keep the switch explicit so the path can be re-enabled independently.
-constexpr bool kBackupExecuteRenderChain = false;
+constexpr bool kBackupExecuteRenderChain = true;
 constexpr bool kBackupRejectUnboundedGeLists = true;
-constexpr bool kBackupExecuteSyntheticPendingList = false;
+constexpr bool kBackupExecuteSyntheticPendingList = true;
 constexpr bool kBackupExecuteSlotLists = true;
 std::uint32_t g_ge_stall_updates = 0u;
 void recomp_unit_0014_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &aot_mem) {
@@ -4124,6 +4124,14 @@ L_089C5A50: // sceGeUnsetCallback(id) -> 0
     return;
 L_089C5A58: // sceGeListEnQueueHead(list, stall, cbid, arg) -> list_id
     { static std::uint32_t s_geqh = 0x80u;
+      const std::uint32_t list_phys  = ctx.gpr[4] & 0x1FFFFFFFu;
+      const std::uint32_t stall_phys = ctx.gpr[5] & 0x1FFFFFFFu;
+      g_ge_list_start    = list_phys;
+      g_ge_exec_cursor   = list_phys;
+      g_ge_stall_updates = 0u;
+      g_ge_list_executed = false;
+      std::printf("[GE-ENQH] list=0x%08X stall=0x%08X\n", list_phys, stall_phys);
+      fflush(stdout);
       ctx.gpr[2] = s_geqh++;
     }
     jump_target = ctx.gpr[31];
@@ -4153,14 +4161,33 @@ L_089C5A70: // sceGeSetCallback(cb) -> 1
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5A78: // sceGeListEnQueue(list, stall, cbid, arg) -> list_id
-    // Just record list start; execution happens at VCB/ListSync time
     { static std::uint32_t s_geq = 1u;
       const std::uint32_t list_phys  = ctx.gpr[4] & 0x1FFFFFFFu;
       const std::uint32_t stall_phys = ctx.gpr[5] & 0x1FFFFFFFu;
+      std::printf("[GE-ENQ] list=0x%08X stall=0x%08X\n", list_phys, stall_phys);
+      fflush(stdout);
       g_ge_list_start    = list_phys;
       g_ge_exec_cursor   = list_phys;
       g_ge_stall_updates = 0u;
       g_ge_list_executed = false;
+      // Execute immediately — sceGeListSync resets g_ge_list_start before VCB can use it
+      if (list_phys != 0u && rt.memory().contains(list_phys, 4u)) {
+          void *vram_ptr = rt.memory().raw_pointer(0x04000000u, 0x200000u);
+          const auto &mem_vec = rt.memory().bytes();
+          if (vram_ptr) {
+              const auto *dl_p = reinterpret_cast<const std::uint32_t *>(rt.memory().raw_pointer(list_phys, 4u));
+              d012::ge_exec(dl_p, dl_p + 0x10000u, vram_ptr, 0x200000u, mem_vec.data(), mem_vec.size(), 0x08000000u);
+              g_ge_list_executed = true;
+              // Sample VRAM for any non-zero pixels as a quick sanity check
+              { const std::uint32_t *fb = reinterpret_cast<const std::uint32_t *>(vram_ptr);
+                std::uint32_t nonzero = 0u;
+                for (std::uint32_t px = 0u; px < 512u*272u && nonzero < 5u; ++px)
+                    if (fb[px]) nonzero++;
+                std::printf("[GE-EXEC] list=0x%08X nonzero_px=%u\n", list_phys, nonzero);
+                fflush(stdout);
+              }
+          }
+      }
       ctx.gpr[2] = s_geq++;
     }
     jump_target = ctx.gpr[31];
@@ -4248,6 +4275,13 @@ L_089C5AC0: // sceDisplaySetFrameBuf(buf, bufWidth, pixelFormat, sync)
     { const std::uint32_t buf_va   = ctx.gpr[4];
       const std::uint32_t buf_w    = ctx.gpr[5];
       const std::uint32_t fmt      = ctx.gpr[6];
+      // Update global framebuffer info so VCB present reads the correct address/format.
+      if (buf_va != 0u) {
+          d012::g_display_fb.vaddr  = buf_va;
+          d012::g_display_fb.stride = buf_w > 0u ? buf_w : 512u;
+          d012::g_display_fb.fmt    = static_cast<int>(fmt);
+          std::printf("[SETFB] buf=0x%08X w=%u fmt=%u\n", buf_va, buf_w, fmt); fflush(stdout);
+      }
       // Dump display list from the GE slot. DAT_09af6830 = current slot ptr (set by FUN_0899f5a4).
       // slot[2] = write cursor (advances as commands are emitted). slot[1] = start address.
       // The DL buffer address comes from DAT_089D5EC0[DAT_089D5EC0[0x8C0/4]].
@@ -4354,9 +4388,32 @@ L_089C5AC0: // sceDisplaySetFrameBuf(buf, bufWidth, pixelFormat, sync)
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wait 16ms
+    // ARCH-SYNTH: loop forever here driving the frame pump. The game's scheduler never
+    // re-triggers this callback via the real thread system, so we own the frame loop.
+    for (;;) {
     { static std::uint32_t s_vcb_frame = 0u;
       ++s_vcb_frame;
+      std::printf("[VCB-LOOP] iter=%u\n", s_vcb_frame); fflush(stdout);
+      // Dump vertex data and slot DL on frame 1 to verify they're populated
+      if (s_vcb_frame == 1u && rt.memory().contains(0x09844F2Cu, 64u)) {
+          const auto *vd = reinterpret_cast<const std::uint32_t *>(rt.memory().raw_pointer(0x09844F2Cu, 64u));
+          std::printf("[VDATA@09844F2C]"); for(int i=0;i<16;++i) std::printf(" %08X",vd[i]); std::printf("\n"); fflush(stdout);
+      }
+      if (s_vcb_frame == 1u && rt.memory().contains(0x09844B80u, 32u)) {
+          const auto *sd = reinterpret_cast<const std::uint32_t *>(rt.memory().raw_pointer(0x09844B80u, 32u));
+          std::printf("[SLOTDL@09844B80]"); for(int i=0;i<8;++i) std::printf(" %08X",sd[i]); std::printf("\n"); fflush(stdout);
+      }
+      // Dump texture at 0x08CE48B0 (Square Enix logo, 256x64) — first 16 words
+      if (s_vcb_frame == 1u && rt.memory().contains(0x08CE48B0u, 64u)) {
+          const auto *td = reinterpret_cast<const std::uint32_t *>(rt.memory().raw_pointer(0x08CE48B0u, 64u));
+          std::printf("[TEX@08CE48B0]"); for(int i=0;i<16;++i) std::printf(" %08X",td[i]); std::printf("\n"); fflush(stdout);
+      }
       // Execute any pending (unexecuted) DL — game fills it between EnQueue and here
+      if (s_vcb_frame <= 6u) {
+          std::printf("[VCB-CHECK] frame=%u pending_flag=%d ge_start=0x%08X\n",
+              s_vcb_frame, (int)kBackupExecuteSyntheticPendingList,
+              g_ge_list_start); fflush(stdout);
+      }
       if (kBackupExecuteSyntheticPendingList && !g_ge_list_executed && g_ge_list_start != 0u
           && rt.memory().contains(g_ge_list_start, 4u)) {
           const auto *dl_ptr = reinterpret_cast<const std::uint32_t *>(rt.memory().raw_pointer(g_ge_list_start, 4u));
@@ -4374,7 +4431,25 @@ L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wa
         if (rt.memory().contains(render_chain_root_va, 4u)) {
             const std::uint32_t node_ptr = rt.memory().load32(render_chain_root_va) & 0x1FFFFFFFu;
             if (s_vcb_frame <= 5u) std::printf("[VCB-CHAIN] frame=%u node_ptr=0x%08X\n", s_vcb_frame, node_ptr);
-            if (kBackupExecuteRenderChain && node_ptr && rt.memory().contains(node_ptr, 4u)) {
+            if (kBackupExecuteRenderChain && node_ptr && rt.memory().contains(node_ptr, 0x40u)) {
+                // Fix node CBP: patch framebuffer pointer from 0x808080 to 0x000000 (VRAM base)
+                // and break the self-JUMP at +0x20 so execution continues to draw commands.
+                { static bool s_patched = false;
+                  if (!s_patched) {
+                      const std::uint32_t cbp = rt.memory().load32(node_ptr + 0x00u);
+                      const std::uint32_t jmp = rt.memory().load32(node_ptr + 0x20u);
+                      std::printf("[NODE-PRE-PATCH] node+0x00=0x%08X node+0x20=0x%08X\n", cbp, jmp); fflush(stdout);
+                  }
+                  // Patch CBP to point to VRAM base (0x04000000 → offset 0x000000)
+                  rt.memory().store32(node_ptr + 0x00u, 0x5C000000u); // CBP = 0
+                  rt.memory().store32(node_ptr + 0x04u, 0x5D000004u); // CBPH = 0x04 (upper 8-bit of 0x04000000)
+                  // Overwrite JUMP at +0x20 with NOP so GE continues past it
+                  rt.memory().store32(node_ptr + 0x20u, 0x00000000u); // NOP
+                  if (!s_patched) {
+                      std::printf("[NODE-PATCHED] CBP→0x5C000000 CBPH→0x5D000004 JUMP→NOP\n"); fflush(stdout);
+                      s_patched = true;
+                  }
+                }
                 void *vram_ptr = rt.memory().raw_pointer(0x04000000u, 0x200000u);
                 const auto &mem_vec = rt.memory().bytes();
                 if (vram_ptr) {
@@ -4407,88 +4482,92 @@ L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wa
         }
       }
       g_ge_list_start = 0u; // consumed
+      { constexpr bool kInjectTestRect = false; // disabled — engine must produce its own pixels
+        if (kInjectTestRect && rt.memory().contains(0x09FD0000u, 256u)) {
+            // --- vertex data at 0x09FD0000 ---
+            // Format: through, ABGR8888 color, s16 XYZ positions (vtype=0x80009C)
+            // 4 verts: top-left, top-right, bottom-left, bottom-right (triangle strip)
+            // Rectangle: (156, 106) to (356, 166) — 200x60 rect in center of 512x272
+            auto w16 = [&](std::uint32_t va, std::uint16_t v){ rt.memory().store8(va, v&0xFF); rt.memory().store8(va+1, (v>>8)&0xFF); };
+            auto w32 = [&](std::uint32_t va, std::uint32_t v){ rt.memory().store8(va, v&0xFF); rt.memory().store8(va+1,(v>>8)&0xFF); rt.memory().store8(va+2,(v>>16)&0xFF); rt.memory().store8(va+3,(v>>24)&0xFF); };
+            const std::uint32_t vbase = 0x09FD0000u;
+            // color ABGR8888 = 0xFF00FF00 (bright green, full alpha)
+            const std::uint32_t col = 0xFF00FF00u;
+            // vert 0: top-left (156,106,0)
+            w32(vbase+0,  col); w16(vbase+4,  156); w16(vbase+6,  106); w16(vbase+8,  0);
+            // vert 1: top-right (356,106,0)
+            w32(vbase+10, col); w16(vbase+14, 356); w16(vbase+16, 106); w16(vbase+18, 0);
+            // vert 2: bottom-left (156,166,0)
+            w32(vbase+20, col); w16(vbase+24, 156); w16(vbase+26, 166); w16(vbase+28, 0);
+            // vert 3: bottom-right (356,166,0)
+            w32(vbase+30, col); w16(vbase+34, 356); w16(vbase+36, 166); w16(vbase+38, 0);
+            // --- mini GE DL at 0x09FD0080 ---
+            const std::uint32_t dlbase = 0x09FD0080u;
+            auto gc = [&](std::uint32_t va, std::uint8_t cmd, std::uint32_t arg){
+                rt.memory().store8(va,   arg & 0xFF);
+                rt.memory().store8(va+1, (arg>>8) & 0xFF);
+                rt.memory().store8(va+2, (arg>>16) & 0xFF);
+                rt.memory().store8(va+3, cmd);
+            };
+            std::uint32_t off = 0u;
+            // CBP (0x9C) = framebuffer base low = 0x044000 (VRAM offset of 0x04044000)
+            gc(dlbase+off, 0x9C, 0x044000u); off+=4;
+            // CBPH (0x9D) = high = 0x04 (upper 8 bits of VRAM address 0x04000000)
+            gc(dlbase+off, 0x9D, 0x000004u); off+=4;
+            // CBW (0x9E) = stride=512, fmt=1 (RGBA5551)  → (1<<16)|512
+            gc(dlbase+off, 0x9E, (1u<<16)|512u); off+=4;
+            // VTYPE (0x12) = through=1, color=ABGR8888(7), pos=s16(2)
+            // bits: through=bit23, color[4:2]=7->0x1C, pos[8:7]=2->0x80
+            gc(dlbase+off, 0x12, 0x80009Cu); off+=4;
+            // BASE (0x10): high byte of vertex addr = 0x09 → arg = (0x09<<16) = 0x090000
+            gc(dlbase+off, 0x10, 0x090000u); off+=4;
+            // VADDR (0x01): low 24 bits of vbase = 0xFD0000
+            gc(dlbase+off, 0x01, vbase & 0xFFFFFFu); off+=4;
+            // PRIM (0x04): triangle strip, count=4 → (3<<16)|4
+            gc(dlbase+off, 0x04, (3u<<16)|4u); off+=4;
+            // FINISH (0x0F)
+            gc(dlbase+off, 0x0F, 0u); off+=4;
+            // END (0x0C)
+            gc(dlbase+off, 0x0C, 0u); off+=4;
+            // Execute the mini-DL
+            void *vram_ptr = rt.memory().raw_pointer(0x04000000u, 0x200000u);
+            const auto &mem_vec = rt.memory().bytes();
+            if (vram_ptr) {
+                if (s_vcb_frame == 1u) std::printf("[INJECT] firing test-rect DL at 0x%08X into FB 0x04044000\n", dlbase); fflush(stdout);
+                const auto *dl_ptr = reinterpret_cast<const std::uint32_t *>(rt.memory().raw_pointer(dlbase, 4u));
+                d012::ge_exec(dl_ptr, dl_ptr + 64u, vram_ptr, 0x200000u, mem_vec.data(), mem_vec.size(), 0x08000000u);
+            }
+        }
+      }
       // ARCH-SYNTH: once scene 0x2713 (Square Enix logo) is in pending list but not yet active,
       // restore the runtime-corrupted vtable at 0x089CAC90 and call FUN_088A2664(0.0f, 0x2713).
       // The vtable at 0x089CAC90 gets overwritten by pool/BSS data at runtime; we restore it
       // from the ELF (verified at file offset 0x1C7C68) before dispatching.
       { constexpr bool kBackupSceneActivation = true;
-        // Keep disabled until the scene manager's render callback chain is
-        // reconstructed; enabling it promotes an incomplete node and causes
-        // unbounded malformed GE lists.
-        constexpr bool kBackupScenePromotion = false;
+        constexpr bool kBackupScenePromotion = true;
         static bool s_scene_done=false;
         if (kBackupSceneActivation && !s_scene_done) {
             const std::uint32_t pending = aot_mem.aot_load32(0x09B4CF98u);
             if (pending != 0u && aot_mem.aot_load32(0x09B48358u) == 0u) {
-                // Restore vtable at 0x089CAC90 from ELF values
-                constexpr std::uint32_t vt = 0x089CAC90u;
-                aot_mem.aot_store32(vt+0x00u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x04u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x08u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x0Cu, 0x088A1C74u);
-                aot_mem.aot_store32(vt+0x10u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x14u, 0x088A310Cu);
-                aot_mem.aot_store32(vt+0x18u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x1Cu, 0x088A3188u);
-                aot_mem.aot_store32(vt+0x20u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x24u, 0x088A31ACu);
-                aot_mem.aot_store32(vt+0x28u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x2Cu, 0x088A31D4u);
-                aot_mem.aot_store32(vt+0x30u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x34u, 0x088A31FCu);
-                aot_mem.aot_store32(vt+0x38u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x3Cu, 0x088A3224u);
-                aot_mem.aot_store32(vt+0x40u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x44u, 0x088A3248u);
-                aot_mem.aot_store32(vt+0x48u, 0x00000000u);
-                aot_mem.aot_store32(vt+0x4Cu, 0x088A3254u);
-                std::printf("[SCENE-ACT] pending=0x%08X vtable restored, calling FUN_088A2664\n",
-                            pending); fflush(stdout);
-                // Repair scene node fields in case FUN_088A2024 didn't run (cross-unit chain miss).
-                // These are the exact values FUN_088A2024 writes for a fresh node.
-                // The animation dispatcher indexes a two-entry callback
-                // table with this field; although FUN_088A2024 initializes
-                // it as a float in the original object, the reconstructed
-                // scene must use a valid table index here.
-                aot_mem.aot_store32(pending + 0x18u, 0u);
-                aot_mem.aot_store32(pending + 0x1Cu, 0x41A00000u); // float 20.0
-                aot_mem.aot_store32(pending + 0x20u, 0x3F800000u); // float 1.0
-                aot_mem.aot_store32(pending + 0x24u, 0x3F800000u); // float 1.0
-                aot_mem.aot_store32(pending + 0x28u, 0x00000000u);
-                // Backup activation enters FUN_088A1E44 in its transition
-                // state. State 0 only advances to 2 and deliberately does
-                // not invoke the scene vtable.
-                aot_mem.aot_store32(pending + 0x30u, 0x00000001u); // state = 1
-                aot_mem.aot_store32(pending + 0x34u, 0x000002F0u);
-                aot_mem.aot_store32(pending + 0x38u, 0xBF800000u); // float -1.0
-                aot_mem.aot_store32(pending + 0x3Cu, 0x00000000u);
-                aot_mem.aot_store32(pending + 0x40u, 0x00000000u);
-                aot_mem.aot_store32(pending + 0x44u, 0x00000000u);
-                aot_mem.aot_store32(pending + 0x48u, 0x00000000u);
-                aot_mem.aot_store32(pending + 0x54u, 0x00000000u);
-                // FUN_088A1E44 obtains the scene callback object from node+0x50,
-                // then reads its vtable pointer.  The partial archive path left
-                // this descriptor unset, so the state machine could never reach
-                // the ELF scene callbacks even though the node was promoted.
-                constexpr std::uint32_t scene_desc = 0x09FE0200u;
-                aot_mem.aot_store32(scene_desc + 0x00u, 0x089CAC90u);
-                aot_mem.aot_store32(scene_desc + 0x04u, 0x00002713u);
-                aot_mem.aot_store32(scene_desc + 0x08u, 0xFFFFFFFFu);
-                aot_mem.aot_store32(scene_desc + 0x0Cu, 0x00000001u);
-                aot_mem.aot_store32(scene_desc + 0x10u, 0x00000000u);
-                aot_mem.aot_store16(scene_desc + 0x18u, 0u);
-                aot_mem.aot_store32(pending + 0x50u, scene_desc);
-                std::printf("[SCENE-DESC] desc=0x%08X vt=0x%08X type=0x%08X res=0x%08X\n",
-                    scene_desc, aot_mem.aot_load32(scene_desc), aot_mem.aot_load32(scene_desc+4u),
-                    aot_mem.aot_load32(scene_desc+8u)); fflush(stdout);
-                std::printf("[SCENE-ACT] node fields repaired, calling FUN_088A2664\n"); fflush(stdout);
+                // The real wrapper was created by FUN_088A24D4 (via unit-3 ARCH-SYNTH).
+                // FUN_088A2024 already filled wrapper+0x18..+0x50 correctly.
+                // Log what we have.
+                const std::uint32_t scene_desc = aot_mem.aot_load32(pending + 0x50u);
+                std::printf("[SCENE-ACT] pending=0x%08X state=0x%08X scene_desc=0x%08X\n",
+                            pending, aot_mem.aot_load32(pending+0x30u), scene_desc); fflush(stdout);
+                if (scene_desc != 0u) {
+                    std::printf("[SCENE-DESC] vt=0x%08X type=0x%08X res=0x%08X\n",
+                        aot_mem.aot_load32(scene_desc), aot_mem.aot_load32(scene_desc+4u),
+                        aot_mem.aot_load32(scene_desc+8u)); fflush(stdout);
+                }
+                // Set state=1 so FUN_088A1E44 invokes the vtable startup fn (slot+0x1C).
+                if (aot_mem.aot_load32(pending + 0x30u) == 0u)
+                    aot_mem.aot_store32(pending + 0x30u, 0x00000001u);
+                // Call FUN_088A2664(0.0, 0x2713) to run FUN_088A1E44 on the pending wrapper.
                 const std::uint32_t save_ra  = ctx.gpr[31];
                 const std::uint32_t save_a0  = ctx.gpr[4];
                 const float         save_f12 = ctx.fpr[12];
                 ctx.fpr[12] = 0.0f;
-                // FUN_088A2664(0, 0x2713): $a0 is the float/transition
-                // parameter and must be zero; do not inherit the caller's
-                // stale value (which can dispatch an invalid scene path).
                 ctx.gpr[4]  = 0u;
                 ctx.gpr[5]  = 0x2713u;
                 ctx.gpr[31] = 0x089C5B00u;
@@ -4497,28 +4576,12 @@ L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wa
                 ctx.gpr[31] = save_ra;
                 ctx.gpr[4]  = save_a0;
                 ctx.fpr[12] = save_f12;
-                // The generated FUN_088A2664 currently exits before its
-                // indirect vtable dispatch. Continue through the original
-                // guest callback so the scene can perform its real resource
-                // setup; this is not a renderer or host-side image path.
-                if (aot_mem.aot_load32(0x09B48358u) == 0u) {
-                    std::printf("[SCENE-FALLBACK] dispatching original 0x088A3188 guest callback\n"); fflush(stdout);
-                    ctx.gpr[4] = scene_desc;
-                    ctx.gpr[5] = 0u;
-                    ctx.gpr[31] = 0x089C5B00u;
-                    ctx.pc = 0x088A3188u;
-                    (void)rt.invoke_chained_call(ctx, &aot_mem);
-                    ctx.gpr[31] = save_ra;
-                    ctx.gpr[4] = save_a0;
-                }
                 std::printf("[SCENE-ACT] done, active=0x%08X\n",
                             aot_mem.aot_load32(0x09B48358u)); fflush(stdout);
-                // The generated scene-manager path can complete without
-                // updating the active-root global in this partial port. Keep
-                // this promotion independently switchable for rollback.
-                if (kBackupScenePromotion &&
-                    aot_mem.aot_load32(0x09B48358u) == 0u &&
-                    aot_mem.aot_load32(pending + 0x58u) == 0u) {
+                // Backup: if FUN_088A2664 didn't promote, do it directly.
+                // Don't check pending+0x58 — for static-pool wrappers that field
+                // lands outside the 36-byte slot and may contain non-zero pool data.
+                if (kBackupScenePromotion && aot_mem.aot_load32(0x09B48358u) == 0u) {
                     aot_mem.aot_store32(0x09B48358u, pending);
                     aot_mem.aot_store32(0x09B4835Cu, pending);
                     aot_mem.aot_store32(0x09B4CF98u, 0u);
@@ -4527,6 +4590,66 @@ L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wa
                                 pending); fflush(stdout);
                 }
                 s_scene_done = true;
+            }
+        }
+      }
+      // Per-frame scene tick: call FUN_08874DFC (scene anim/state) and FUN_08873E6C (render director)
+      // when the active scene list (DAT_09B48358) is populated but these tasks are absent from the
+      // 5-task scheduler loop. Without these calls the scene render callbacks never fire.
+      { constexpr bool kBackupSceneTick = true;
+        if (kBackupSceneTick && aot_mem.aot_load32(0x09B48358u) != 0u) {
+            const std::uint32_t save_ra = ctx.gpr[31];
+            const std::uint32_t save_a0 = ctx.gpr[4];
+            // FUN_08874DFC -> FUN_08874C7C: ticks all active scenes (animation + adds to render list)
+            ctx.gpr[31] = 0x089C5B00u;
+            ctx.pc      = 0x08874DFCu;
+            (void)rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 6620u, 0x08874DFCu>(ctx, &aot_mem);
+            // FUN_08873E6C -> FUN_088739CC: render director state machine (submits GE DLs)
+            // State at a0+564=0x09B48204: 0=nop, 1=iterate render list, 2=0x088740DC
+            // Force state=1 so the render director actually iterates the render list.
+            if (aot_mem.aot_load32(0x09B48204u) == 0u)
+                aot_mem.aot_store32(0x09B48204u, 1u);
+            ctx.gpr[4]  = 0x09B47FD0u;
+            ctx.gpr[31] = 0x089C5B00u;
+            ctx.pc      = 0x08873E6Cu;
+            (void)rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 6617u, 0x08873E6Cu>(ctx, &aot_mem);
+            ctx.gpr[31] = save_ra;
+            ctx.gpr[4]  = save_a0;
+            // ARCH-SYNTH: drive FUN_08865ED0 (GRAPHICS::DlStartTask) state machine.
+            // +0x2CD0 states: 0=idle, 1=wait VSync (yields scheduler), 2=GE submit, 3->0 (reset).
+            // State 1 calls FUN_089A01FC (VSync) which yields the scheduler and breaks
+            // invoke_chained_direct. We skip state 1 entirely by forcing 0/1 -> 2 directly.
+            { const std::uint32_t gfx_ctx = aot_mem.aot_load32(0x089D5EC0u);
+              if (gfx_ctx != 0u) {
+                  const std::uint8_t cur_state = aot_mem.aot_load8(gfx_ctx + 0x2CD0u);
+                  // Force state to 2 every frame — skip state 1 (VSync wait) and reset
+                  // state 3 back to 2 so submit fires again. Always clear ge_dis flag.
+                  aot_mem.aot_store8(gfx_ctx + 0x2CD0u, 2u);
+                  aot_mem.aot_store8(gfx_ctx + 0x2CCEu, 0u); // clear GE-disable flag
+                  if (s_vcb_frame <= 5u) {
+                      std::printf("[DLSTART] frame=%u state_before=%u state_after=%u ge_dis=%u\n",
+                          s_vcb_frame, cur_state, aot_mem.aot_load8(gfx_ctx + 0x2CD0u),
+                          aot_mem.aot_load8(gfx_ctx + 0x2CCEu));
+                      fflush(stdout);
+                  }
+                  ctx.gpr[31] = 0x089C5B00u;
+                  ctx.pc      = 0x08865ED0u;
+                  (void)rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 1u, 0x08865ED0u>(ctx, &aot_mem);
+              }
+            }
+            if (s_vcb_frame <= 5u) {
+                const std::uint32_t active = aot_mem.aot_load32(0x09B48358u);
+                // Static render list: 0x09B48360+1152..+1152+count*4
+                const std::uint32_t rlist_count = aot_mem.aot_load32(0x09B48360u + 1280u);
+                std::printf("[SCENE-TICK] frame=%u active=0x%08X rlist_count=%u\n",
+                            s_vcb_frame, active, rlist_count);
+                if (rlist_count > 0u && rlist_count <= 32u) {
+                    for (std::uint32_t ri = 0u; ri < rlist_count; ++ri)
+                        std::printf("  rlist[%u]=0x%08X state=%u\n", ri,
+                            aot_mem.aot_load32(0x09B48360u + 1152u + ri*4u),
+                            aot_mem.aot_load32(aot_mem.aot_load32(0x09B48360u + 1152u + ri*4u) + 24u));
+                }
+                fflush(stdout);
             }
         }
       }
@@ -4551,9 +4674,13 @@ L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wa
       const std::int64_t us_per_frame = 16667;
       const std::int64_t frames_passed = us_elapsed / us_per_frame;
       const auto next_vblank = s_vblank_cb_start + std::chrono::microseconds((frames_passed + 1) * us_per_frame);
+      std::printf("[VCB-SPIN] frame=%u spinning...\n", s_vcb_frame); fflush(stdout);
       while (std::chrono::steady_clock::now() < next_vblank) { /* spin */ }
-      d012::display_pump();
+      std::printf("[VCB-SPIN] frame=%u done, pumping\n", s_vcb_frame); fflush(stdout);
+      if (!d012::display_pump()) { std::printf("[VCB-EXIT] window closed\n"); fflush(stdout); goto L_089C5AD8; }
+      std::printf("[VCB-SPIN] frame=%u looping\n", s_vcb_frame); fflush(stdout);
     }
+    } // end for(;;) frame loop
     ctx.gpr[2] = 0u;
     jump_target = ctx.gpr[31];
     ctx.pc = jump_target;

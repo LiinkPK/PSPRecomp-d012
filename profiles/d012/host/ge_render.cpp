@@ -496,7 +496,13 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
 
         // Address/BASE
         case 0x10: // BASE — upper 8 bits of address
-            gs.base_addr = (arg & 0xFF0000u) << 8;
+            { static std::uint32_t s_base_log = 0;
+              gs.base_addr = (arg & 0xFF0000u) << 8;
+              if (++s_base_log <= 10) {
+                  std::printf("[GE-BASE] arg=0x%06X base_addr=0x%08X\n", arg, gs.base_addr);
+                  fflush(stdout);
+              }
+            }
             break;
         case 0x13: // OFFSETADDR
             gs.base_addr = (arg & 0xFF0000u) << 8;
@@ -504,7 +510,13 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
 
         // Vertex/Index addresses
         case 0x01: // VADDR
-            gs.vaddr = (gs.base_addr | arg) & 0x1FFFFFFFu;
+            { static std::uint32_t s_vaddr_log = 0;
+              gs.vaddr = (gs.base_addr | arg) & 0x1FFFFFFFu;
+              if (++s_vaddr_log <= 10) {
+                  std::printf("[GE-VADDR] arg=0x%06X base=0x%08X resolved=0x%08X\n", arg, gs.base_addr, gs.vaddr);
+                  fflush(stdout);
+              }
+            }
             break;
         case 0x02: // IADDR
             gs.iaddr = (gs.base_addr | arg) & 0x1FFFFFFFu;
@@ -626,20 +638,18 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
                 if (++s_vptr_miss <= 5) std::printf("[GE-VPTR-MISS] va=0x%08X mem_size=0x%zX vram_size=0x%zX\n", va, mem_size, vram_size);
                 break;
             }
-            { // Dump vertex data for diagnostics
+            { // Dump vertex data for diagnostics — sample first 3 bytes to detect non-zero
+                static std::uint32_t s_last_va = 0xFFFFFFFFu;
                 static std::uint32_t s_vdump = 0;
-                if (++s_vdump <= 4) {
-                    std::printf("[GE-VDATA] va=0x%08X vtype=0x%X bytes:", va, gs.vtype);
-                    for (int _b = 0; _b < 32; ++_b) std::printf(" %02X", vptr[_b]);
-                    std::printf("\n");
-                    // Scan entire RAM for non-zero bytes to verify data loading
-                    const std::uint8_t *ram_base = static_cast<const std::uint8_t*>(mem);
-                    std::uint32_t nz_count = 0; std::uint32_t first_nz_off = 0;
-                    for (std::uint32_t _s = 0; _s < mem_size && nz_count < 3; _s++) {
-                        if (ram_base[_s] != 0) { if (nz_count == 0) first_nz_off = _s; nz_count++; }
+                const bool has_nonzero = (vptr[0]|vptr[1]|vptr[2]|vptr[3]) != 0;
+                if (va != s_last_va || has_nonzero) {
+                    s_last_va = va;
+                    if (++s_vdump <= 20 || has_nonzero) {
+                        std::printf("[GE-VDATA] va=0x%08X vtype=0x%X bytes:", va, gs.vtype);
+                        for (int _b = 0; _b < 32; ++_b) std::printf(" %02X", vptr[_b]);
+                        std::printf("\n");
+                        fflush(stdout);
                     }
-                    std::printf("[GE-RAM-SCAN] nonzero_count_first3: first_offset=0x%08X count>=%u\n", first_nz_off, nz_count);
-                    fflush(stdout);
                 }
             }
 

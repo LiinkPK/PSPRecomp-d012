@@ -1,4 +1,4 @@
-﻿#include "psprecomp/runtime.hpp"
+#include "psprecomp/runtime.hpp"
 #include "generated_units.hpp"
 #include "../host/d012_profile.hpp"
 #include <bit>
@@ -7985,10 +7985,9 @@ L_08865F00:
       goto L_08865F08;
     }
 L_08865F08:
+    // ARCH-SYNTH: skip FUN_089A01FC (VSync wait in state 1) — skip directly to state 2.
     ctx.gpr[31] = (0x08865F10u);
-    ctx.gpr[4] = (0u | 0u);
-    if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4558u, 0x089A01FCu>(ctx, &aot_mem) && ctx.pc == 0x08865F10u) goto L_08865F10;
-    return;
+    ctx.pc = 0x08865F10u;
 L_08865F10:
     ctx.gpr[31] = (0x08865F18u);
     // nop
@@ -8052,11 +8051,10 @@ L_08865F70:
     ctx.gpr[4] = (ctx.gpr[16] | 0u);
     goto L_08865E50;
 L_08865F78:
-    ctx.gpr[4] = (0u | 4u);
+    // ARCH-SYNTH: skip FUN_089A0190 (scheduler yield before GE submit) — it breaks the
+    // invoke_chained_direct chain and prevents FUN_08865918 from running. Fall through directly.
     ctx.gpr[31] = (0x08865F84u);
-    ctx.gpr[5] = (0u | 0u);
-    if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4554u, 0x089A0190u>(ctx, &aot_mem) && ctx.pc == 0x08865F84u) goto L_08865F84;
-    return;
+    ctx.pc = 0x08865F84u;
 L_08865F84:
     ctx.gpr[31] = (0x08865F8Cu);
     ctx.gpr[4] = (ctx.gpr[16] | 0u);
@@ -8079,10 +8077,9 @@ L_08865F9C:
       goto L_08865FA8;
     }
 L_08865FA8:
+    // ARCH-SYNTH: skip FUN_089A01FC (VSync wait after GE submit in state 3) — same reason as L_08865F78.
     ctx.gpr[31] = (0x08865FB0u);
-    ctx.gpr[4] = (0u | 1u);
-    if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4558u, 0x089A01FCu>(ctx, &aot_mem) && ctx.pc == 0x08865FB0u) goto L_08865FB0;
-    return;
+    ctx.pc = 0x08865FB0u;
 L_08865FB0:
     ctx.gpr[31] = (0x08865FB8u);
     // nop
@@ -28135,6 +28132,7 @@ L_08871394:
 L_088713A4:
     ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
     jump_target = ctx.gpr[31];
+    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[713A4-RET] jump_target=0x%08X gpr16=0x%08X mem_gpr16=0x%08X\n", jump_target, ctx.gpr[16], (unsigned)aot_mem.aot_load32(ctx.gpr[16])); std::fflush(stdout); }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(16));
     ctx.pc = jump_target;
     local_pc = jump_target;
@@ -28857,7 +28855,8 @@ L_0887197C:
     ctx.gpr[31] = (0x088719A4u);
     ctx.gpr[5] = (ctx.gpr[6] | 0u);
     ctx.pc = jump_target;
-    if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088719A4u) goto L_088719A4;
+    // ARCH-SYNTH: target 0x088634BC is in unit 2 (poisoned); use direct.
+    if (rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x088634BCu>(ctx, &aot_mem) && ctx.pc == 0x088719A4u) goto L_088719A4;
     return;
 L_088719A4:
     { static unsigned trace_pkg_ret = 0u; if (trace_pkg_ret++ < 4u) {
@@ -54267,6 +54266,34 @@ L_0888251C:
     aot_mem.aot_store32(ctx.gpr[19] + static_cast<std::uint32_t>(68), ctx.gpr[17]);
     ctx.gpr[5] = (aot_mem.aot_load32(ctx.gpr[19] + static_cast<std::uint32_t>(0)));
     aot_mem.aot_store32(ctx.gpr[19] + static_cast<std::uint32_t>(72), ctx.gpr[18]);
+    // ARCH-SYNTH: allocate scene wrapper directly from the static pool at 0x09B48360.
+    // FUN_0887487C only accepts wrappers in 0x09B48360..0x09B487DF (static pool).
+    // Dynamic pool wrappers (0x098Fxxxx) are silently rejected. The static pool
+    // freehead was confirmed at 0x09B487BC (slot 31, last slot) at runtime.
+    // We zero the slot, set wrapper+24=0 (dispatch state), and store it in
+    // 0x09B4CF98 so unit-14's activation promotes it to the active scene list.
+    { static bool s_scene_created = false;
+      if (!s_scene_created && aot_mem.aot_load8(0x089D6C98u) != 0u
+          && aot_mem.aot_load32(0x09B4CF98u) == 0u
+          && aot_mem.aot_load32(0x09B48358u) == 0u) {
+          // Static pool: base=0x09B48360, 32 slots x 36 bytes.
+          // Slot 31 (last) = 0x09B48360 + 31*36 = 0x09B487BC.
+          constexpr std::uint32_t kWrapper = 0x09B487BCu;
+          // Zero-fill all 36 bytes of the slot.
+          for (std::uint32_t i = 0u; i < 36u; i += 4u)
+              aot_mem.aot_store32(kWrapper + i, 0u);
+          // wrapper+24 = 0: dispatch state 0 -> FUN_08874680 (animation tick).
+          // wrapper+20 = 0.0f: duration 0 -> animation immediately advances to state 2.
+          // State 2 -> FUN_088745E8 dispatches to FUN_0887487C which adds to render list.
+          aot_mem.aot_store32(kWrapper + 24u, 0u);
+          // Write wrapper into pending list so unit-14 activation promotes it.
+          aot_mem.aot_store32(0x09B4CF98u, kWrapper);
+          std::printf("[STATIC-WRAPPER] placed 0x%08X in pending=0x%08X\n",
+                      kWrapper, aot_mem.aot_load32(0x09B4CF98u));
+          std::fflush(stdout);
+          s_scene_created = true;
+      }
+    }
     { static std::uint32_t s_dispatch_count = 0u;
       static std::uint32_t s_last_tbl0 = 0u;
       static std::uint32_t s_last_fn   = 0u;
