@@ -46763,18 +46763,19 @@ L_088DC8FC:
     ctx.gpr[5] = (ctx.gpr[2] | 0u);
     static std::uint32_t s_mpk_object_size = 0u;
     s_mpk_object_size = ctx.gpr[5];
-    std::printf("[MPK-ALLOC] requested=0x%08X\\n", s_mpk_object_size);
-    ctx.gpr[6] = (0u | 0u);
-    ctx.gpr[7] = (0u | 0u);
+    // ARCH-SYNTH: allocator at 0x0885C6CC is in unit 2 (poisoned). Use static pool directly.
+    { static std::uint32_t s_mpk_obj_pool = 0x09FA0000u;
+      ctx.gpr[2] = s_mpk_obj_pool;
+      s_mpk_obj_pool += (s_mpk_object_size + 255u) & ~255u;
+      for (std::uint32_t z = 0; z < s_mpk_object_size; z += 4u) aot_mem.aot_store32(ctx.gpr[2] + z, 0u);
+    }
     ctx.gpr[31] = (0x088DC920u);
-    ctx.gpr[9] = (0u | 0u);
-    if (rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 3993u, 0x0885C6CCu>(ctx, &aot_mem) && ctx.pc == 0x088DC920u) goto L_088DC920;
-    return;
+    goto L_088DC920;
 L_088DC920:
     if (ctx.gpr[2] < 0x08800000u || ctx.gpr[2] >= 0x0A000000u) {
-        static std::uint32_t s_mpk_obj_pool = 0x09FA0000u;
-        ctx.gpr[2] = s_mpk_obj_pool;
-        s_mpk_obj_pool += (s_mpk_object_size + 255u) & ~255u;
+        static std::uint32_t s_mpk_obj_pool_fallback = 0x09FC0000u;
+        ctx.gpr[2] = s_mpk_obj_pool_fallback;
+        s_mpk_obj_pool_fallback += (s_mpk_object_size + 255u) & ~255u;
         for (std::uint32_t z = 0; z < s_mpk_object_size; z += 4u) aot_mem.aot_store32(ctx.gpr[2] + z, 0u);
     }
     aot_mem.aot_store32(ctx.gpr[17] + static_cast<std::uint32_t>(92), ctx.gpr[2]);
