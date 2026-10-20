@@ -65,7 +65,9 @@ static inline void blend_pixel(std::uint32_t *dst, std::uint32_t src_abgr) {
 
 struct GeState {
     // Addresses (host physical — already masked to 0x1FFFFFFF)
-    std::uint32_t base_addr = 0;          // BASE register high bits
+    std::uint32_t base_extended = 0;      // BASE register: bits 24-27 of address
+    std::uint32_t offset_address = 0;     // OFFSETADDR: added on top of base_extended
+    std::uint32_t base_addr = 0;          // combined = base_extended | offset_address (legacy, keep for JUMP)
     std::uint32_t vaddr     = 0;          // VADDR (vertex buffer)
     std::uint32_t iaddr     = 0;          // IADDR (index buffer)
 
@@ -83,9 +85,9 @@ struct GeState {
     std::uint32_t color     = 0xFFFFFFFFu;
 
     // Framebuffer target (set by DRAW* commands)
-    std::uint32_t fbp       = 0;         // framebuffer base (phys, into VRAM)
+    std::uint32_t fbp       = 0;         // framebuffer base (phys, into VRAM, byte offset)
     std::uint32_t fbw       = 512;       // framebuffer stride (pixels)
-    int           fbfmt     = 3;         // 0=RGB565, 3=RGBA8888
+    int           fbfmt     = 3;         // 0=RGB565, 1=RGBA5551, 2=RGBA4444, 3=RGBA8888
 
     // Scissor
     int sc_x1 = 0, sc_y1 = 0, sc_x2 = 480, sc_y2 = 272;
@@ -269,7 +271,7 @@ static void draw_sprite(const GeState &gs, const Vertex &v0, const Vertex &v1,
         ? (v1.v - v0.v) / static_cast<float>(static_cast<int>(v1.y) - static_cast<int>(v0.y))
         : 0.0f;
 
-    const int bpp = (gs.fbfmt == 0) ? 2 : 4;
+    const int bpp = (gs.fbfmt == 3) ? 4 : 2;
     const std::size_t row_bytes = static_cast<std::size_t>(gs.fbw) * bpp;
 
     for (int y = y0; y < y1; ++y) {
@@ -285,16 +287,21 @@ static void draw_sprite(const GeState &gs, const Vertex &v0, const Vertex &v1,
             if (gs.tex_enabled)
                 pixel = sample_tex(gs, fu, fv, mem, mem_size, vram, vram_size);
             else
-                pixel = v1.color; // sprite uses v1's color when no texture? use gs.color
+                pixel = v1.color;
 
-            if (gs.fbfmt == 0) {
-                // Write RGB565
+            if (gs.fbfmt == 3) {
+                blend_pixel(&dst32[x], pixel);
+            } else {
                 const std::uint8_t r = (pixel >>  0) & 0xFF;
                 const std::uint8_t g = (pixel >>  8) & 0xFF;
                 const std::uint8_t b = (pixel >> 16) & 0xFF;
-                dst16[x] = static_cast<std::uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-            } else {
-                blend_pixel(&dst32[x], pixel);
+                const std::uint8_t a = (pixel >> 24) & 0xFF;
+                if (gs.fbfmt == 0) // RGB565
+                    dst16[x] = static_cast<std::uint16_t>(((r>>3)<<11)|((g>>2)<<5)|(b>>3));
+                else if (gs.fbfmt == 1) // RGBA5551
+                    dst16[x] = static_cast<std::uint16_t>(((r>>3)<<11)|((g>>3)<<6)|((b>>3)<<1)|(a>>7));
+                else // RGBA4444
+                    dst16[x] = static_cast<std::uint16_t>(((r>>4)<<12)|((g>>4)<<8)|((b>>4)<<4)|(a>>4));
             }
         }
     }
@@ -318,7 +325,7 @@ static void draw_triangle(const GeState &gs,
     if (std::abs(denom) < 1e-6f) return;
     const float inv_denom = 1.0f / denom;
 
-    const int bpp = (gs.fbfmt == 0) ? 2 : 4;
+    const int bpp = (gs.fbfmt == 3) ? 4 : 2;
     const std::size_t row_bytes = static_cast<std::size_t>(gs.fbw) * bpp;
 
     for (int y = miny; y < maxy; ++y) {
@@ -341,7 +348,6 @@ static void draw_triangle(const GeState &gs,
                 float fv = w0 * v0.v + w1 * v1.v + w2 * v2.v;
                 pixel = sample_tex(gs, fu, fv, mem, mem_size, vram, vram_size);
             } else {
-                // Interpolate color
                 std::uint32_t c0 = v0.color, c1 = v1.color, c2 = v2.color;
                 auto chan = [&](int shift) -> std::uint32_t {
                     return static_cast<std::uint32_t>(
@@ -352,13 +358,19 @@ static void draw_triangle(const GeState &gs,
                 pixel = (chan(24) << 24) | (chan(16) << 16) | (chan(8) << 8) | chan(0);
             }
 
-            if (gs.fbfmt == 0) {
+            if (gs.fbfmt == 3) {
+                blend_pixel(&dst32[x], pixel);
+            } else {
                 const std::uint8_t r = (pixel >>  0) & 0xFF;
                 const std::uint8_t g = (pixel >>  8) & 0xFF;
                 const std::uint8_t b = (pixel >> 16) & 0xFF;
-                dst16[x] = static_cast<std::uint16_t>(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
-            } else {
-                blend_pixel(&dst32[x], pixel);
+                const std::uint8_t a = (pixel >> 24) & 0xFF;
+                if (gs.fbfmt == 0)
+                    dst16[x] = static_cast<std::uint16_t>(((r>>3)<<11)|((g>>2)<<5)|(b>>3));
+                else if (gs.fbfmt == 1)
+                    dst16[x] = static_cast<std::uint16_t>(((r>>3)<<11)|((g>>3)<<6)|((b>>3)<<1)|(a>>7));
+                else
+                    dst16[x] = static_cast<std::uint16_t>(((r>>4)<<12)|((g>>4)<<8)|((b>>4)<<4)|(a>>4));
             }
         }
     }
@@ -370,29 +382,34 @@ static void draw_line(const GeState &gs, const Vertex &v0, const Vertex &v1,
                       void *vram, std::size_t vram_size) {
     int x0 = static_cast<int>(v0.x), y0 = static_cast<int>(v0.y);
     int x1 = static_cast<int>(v1.x), y1 = static_cast<int>(v1.y);
-    const int bpp = (gs.fbfmt == 0) ? 2 : 4;
+    const int bpp = (gs.fbfmt == 3) ? 4 : 2;
     const std::size_t row_bytes = static_cast<std::size_t>(gs.fbw) * bpp;
 
     const int dx = std::abs(x1 - x0), sx = (x0 < x1) ? 1 : -1;
     const int dy = -std::abs(y1 - y0), sy = (y0 < y1) ? 1 : -1;
     int err = dx + dy;
 
-    // Use v1 color for the line (same as sprite convention)
     const std::uint32_t line_color = v1.color != 0xFFFFFFFFu ? v1.color : gs.color;
 
     for (;;) {
         if (x0 >= gs.sc_x1 && x0 < gs.sc_x2 && y0 >= gs.sc_y1 && y0 < gs.sc_y2) {
             const std::size_t off = gs.fbp + static_cast<std::size_t>(y0) * row_bytes;
             if (off + static_cast<std::size_t>(x0 + 1) * bpp <= vram_size) {
-                if (gs.fbfmt == 0) {
+                if (gs.fbfmt == 3) {
+                    auto *dst = reinterpret_cast<std::uint32_t*>(static_cast<char*>(vram) + off);
+                    blend_pixel(&dst[x0], line_color);
+                } else {
                     auto *dst = reinterpret_cast<std::uint16_t*>(static_cast<char*>(vram) + off);
                     const std::uint8_t r = (line_color >>  0) & 0xFF;
                     const std::uint8_t g = (line_color >>  8) & 0xFF;
                     const std::uint8_t b = (line_color >> 16) & 0xFF;
-                    dst[x0] = static_cast<std::uint16_t>(((r>>3)<<11)|((g>>2)<<5)|(b>>3));
-                } else {
-                    auto *dst = reinterpret_cast<std::uint32_t*>(static_cast<char*>(vram) + off);
-                    blend_pixel(&dst[x0], line_color);
+                    const std::uint8_t a = (line_color >> 24) & 0xFF;
+                    if (gs.fbfmt == 0)
+                        dst[x0] = static_cast<std::uint16_t>(((r>>3)<<11)|((g>>2)<<5)|(b>>3));
+                    else if (gs.fbfmt == 1)
+                        dst[x0] = static_cast<std::uint16_t>(((r>>3)<<11)|((g>>3)<<6)|((b>>3)<<1)|(a>>7));
+                    else
+                        dst[x0] = static_cast<std::uint16_t>(((r>>4)<<12)|((g>>4)<<8)|((b>>4)<<4)|(a>>4));
                 }
             }
         }
@@ -405,6 +422,10 @@ static void draw_line(const GeState &gs, const Vertex &v0, const Vertex &v1,
 
 // ---- main executor ----------------------------------------------------------
 
+int          d012::g_ge_last_fbfmt = 3;
+std::uint32_t d012::g_ge_last_fbp  = 0;
+std::uint32_t d012::g_ge_last_fbw  = 512;
+
 void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
              void *vram, std::size_t vram_size,
              const void *mem, std::size_t mem_size,
@@ -412,6 +433,7 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
     if (!dl || !vram) return;
 
     GeState gs;
+    gs.base_extended = initial_base_addr;
     gs.base_addr = initial_base_addr;
     static std::uint32_t s_exec_count = 0;
     ++s_exec_count;
@@ -457,8 +479,8 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
         case 0x00: case 0xFF: break; // NOP
 
         // Control flow
-        case 0x08: { // JUMP — unconditional jump to address (BASE | arg, lower 2 bits = 0)
-            const std::uint32_t target_phys = ((gs.base_addr & 0xFF000000u) | arg) & 0x1FFFFFFFu;
+        case 0x08: { // JUMP — unconditional jump to address (base_extended | arg, lower 2 bits = 0)
+            const std::uint32_t target_phys = ((gs.base_extended & 0xFF000000u) | arg) & 0x1FFFFFFFu;
             const std::uint32_t *new_p = nullptr;
             if (target_phys >= 0x08000000u && (target_phys - 0x08000000u) < mem_size)
                 new_p = reinterpret_cast<const std::uint32_t *>(static_cast<const char *>(mem) + (target_phys - 0x08000000u));
@@ -494,32 +516,37 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
         case 0x0F:        // FINISH — end of list
             goto done;
 
-        // Address/BASE
-        case 0x10: // BASE — upper 8 bits of address
+        // Address/BASE — BASE supplies the four high bits; OFFSETADDR is added on top.
+        // These must be kept separate: letting OFFSETADDR overwrite BASE corrupts all
+        // subsequent vertex/index/texture address resolution (PortableKit ge_state.cpp).
+        case 0x10: // BASE
+            gs.base_extended = (arg & 0x000F0000u) << 8u;
+            gs.base_addr     = gs.base_extended | gs.offset_address;
             { static std::uint32_t s_base_log = 0;
-              gs.base_addr = (arg & 0xFF0000u) << 8;
               if (++s_base_log <= 10) {
-                  std::printf("[GE-BASE] arg=0x%06X base_addr=0x%08X\n", arg, gs.base_addr);
+                  std::printf("[GE-BASE] arg=0x%06X base_extended=0x%08X\n", arg, gs.base_extended);
                   fflush(stdout);
               }
             }
             break;
         case 0x13: // OFFSETADDR
-            gs.base_addr = (arg & 0xFF0000u) << 8;
+            gs.offset_address = arg << 8u;
+            gs.base_addr      = gs.base_extended | gs.offset_address;
             break;
 
-        // Vertex/Index addresses
+        // Vertex/Index addresses: combine base + OFFSETADDR + lower 24 bits of arg
         case 0x01: // VADDR
             { static std::uint32_t s_vaddr_log = 0;
-              gs.vaddr = (gs.base_addr | arg) & 0x1FFFFFFFu;
+              gs.vaddr = (gs.offset_address + (gs.base_extended | (arg & 0x00FFFFFFu))) & 0x0FFFFFFFu;
               if (++s_vaddr_log <= 10) {
-                  std::printf("[GE-VADDR] arg=0x%06X base=0x%08X resolved=0x%08X\n", arg, gs.base_addr, gs.vaddr);
+                  std::printf("[GE-VADDR] arg=0x%06X base_ext=0x%08X off=0x%08X resolved=0x%08X\n",
+                              arg, gs.base_extended, gs.offset_address, gs.vaddr);
                   fflush(stdout);
               }
             }
             break;
         case 0x02: // IADDR
-            gs.iaddr = (gs.base_addr | arg) & 0x1FFFFFFFu;
+            gs.iaddr = (gs.offset_address + (gs.base_extended | (arg & 0x00FFFFFFu))) & 0x0FFFFFFFu;
             break;
 
         // Vertex type
@@ -538,14 +565,14 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
             break;
 
         // Framebuffer / draw target
-        case 0x9C: // FRAMEBUFPTR — low 24 bits of framebuffer base in VRAM
+        case 0x9C: // FBPTR — framebuffer base address (byte offset into VRAM, bits [23:0])
             gs.fbp = arg & 0x00FFFFFFu;
             break;
-        case 0x9D: // FRAMEBUFWIDTH — stride in pixels = arg & 0x7FC; high bits ignored
-            gs.fbw   = arg & 0x7FCu;
+        case 0x9D: // FBWIDTH — framebuffer stride in pixels
+            gs.fbw = arg & 0x7FCu;
             break;
         case 0x9E: break; // ZBUFPTR — depth buffer, ignore
-        case 0x9F: break; // ZBUFWIDTH — depth buffer, ignore
+        case 0x9F: break; // ZBUFWIDTH — depth buffer width, ignore
 
         // Texture addresses (TEXADDR0-7 = 0xA0-0xA7, TEXBUFWIDTH0-7 = 0xA8-0xAF)
         case 0xA0: gs.tbp[0] = (gs.base_addr & 0xFF000000u) | arg; break;
@@ -742,6 +769,9 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
         }
     }
 done:
+    g_ge_last_fbfmt = gs.fbfmt;
+    g_ge_last_fbp   = gs.fbp;
+    g_ge_last_fbw   = (gs.fbw > 0) ? gs.fbw : 512u;
     (void)s_exec_count;
 }
 

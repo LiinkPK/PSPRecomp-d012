@@ -1,6 +1,7 @@
 #include "d012_profile.hpp"
 #include "d012_embedded_assets_v2.hpp"
 #include "ge_render.hpp"
+#include "win32_display.hpp"
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/elf32.hpp"
 
@@ -11,6 +12,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 #include <deque>
@@ -66,6 +68,18 @@ static std::deque<ThreadDesc> s_thread_queue;
 static std::uint32_t s_next_thread_uid = 1u;
 static std::uint32_t s_next_cb_uid   = 0x100u;
 static std::uint32_t s_next_sema_uid = 0x200u;
+
+// Cooperative multitasking: saved per-thread register state
+struct SavedThreadCtx {
+    psprecomp::AllegrexContext ctx{};
+    std::uint32_t resume_pc{0u};
+    std::uint32_t uid{0u};
+    bool alive{false};
+};
+static std::vector<SavedThreadCtx> s_live_threads;
+static int s_current_thread_idx = -1; // which thread is currently running
+// When set, the currently running thread should yield at the next sync point
+static bool s_yield_requested = false;
 static std::unordered_map<std::uint32_t, std::uint32_t>  s_callbacks;
 static std::unordered_map<std::uint32_t, std::int32_t>   s_semas;
 // Map uid -> entry for StartThread
@@ -231,7 +245,7 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
 
     // ---- Display (sceDisplay) ----
     // sceDisplaySetFrameBuf(topaddr, bufferwidth, pixelformat, sync) -> 0
-    s_handlers[0x089C5AC0u] = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    s_handlers[0x089C5AC0u] = [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
         s_framebuf = {ctx.gpr[4], ctx.gpr[5], ctx.gpr[6], ctx.gpr[7]};
         ++s_display_frame_count;
         if (s_display_frame_count <= 3u || (s_display_frame_count & 0x3Fu) == 0u)
@@ -242,6 +256,32 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         g_display_fb.vaddr  = ctx.gpr[4];
         g_display_fb.stride = ctx.gpr[5];
         g_display_fb.fmt    = static_cast<int>(ctx.gpr[6]);
+        // Execute any pending GE display list and present the framebuffer.
+        // This drives the frame pump even when the render thread scheduler crashes.
+        if (psprecomp::g_ge_list_start != 0u && rt.memory().contains(psprecomp::g_ge_list_start, 4u)) {
+            void *vram_ptr = rt.memory().raw_pointer(0x04000000u, 0x200000u);
+            if (vram_ptr) {
+                const auto *dl = reinterpret_cast<const std::uint32_t *>(
+                    rt.memory().raw_pointer(psprecomp::g_ge_list_start, 4u));
+                const auto &mem_vec = rt.memory().bytes();
+                d012::ge_exec(dl, dl + 0x10000u, vram_ptr, 0x200000u,
+                              mem_vec.data(), mem_vec.size(), 0x08000000u);
+                psprecomp::g_ge_list_start = 0u;
+            }
+        }
+        {
+            const auto &vram = rt.memory().vram_bytes();
+            const std::uint32_t vram_off = g_display_fb.vaddr & 0x1FFFFFu;
+            const int fmt = d012::g_ge_last_fbfmt;
+            const std::size_t stride = d012::g_ge_last_fbw > 0 ? d012::g_ge_last_fbw
+                                     : (g_display_fb.stride > 0 ? g_display_fb.stride : 512u);
+            const std::size_t bpp = fmt == 3 ? 4u : 2u;
+            const std::size_t fb_bytes = stride * 272u * bpp;
+            const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
+                ? vram.data() + vram_off : vram.data();
+            d012::display_present(fb_ptr, static_cast<int>(stride), fmt);
+            d012::display_pump();
+        }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
     };
@@ -251,26 +291,43 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
     };
-    // sceDisplayWaitVblankStart() -> 0
-    s_handlers[0x089C5AD8u] = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    // sceDisplayWaitVblankStart() -> present + 0
+    auto vblank_present = [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
+        if (psprecomp::g_ge_list_start != 0u && rt.memory().contains(psprecomp::g_ge_list_start, 4u)) {
+            void *vram_ptr = rt.memory().raw_pointer(0x04000000u, 0x200000u);
+            if (vram_ptr) {
+                const auto *dl = reinterpret_cast<const std::uint32_t *>(
+                    rt.memory().raw_pointer(psprecomp::g_ge_list_start, 4u));
+                const auto &mem_vec = rt.memory().bytes();
+                d012::ge_exec(dl, dl + 0x10000u, vram_ptr, 0x200000u,
+                              mem_vec.data(), mem_vec.size(), 0x08000000u);
+                psprecomp::g_ge_list_start = 0u;
+            }
+        }
+        {
+            const auto &vram = rt.memory().vram_bytes();
+            const std::uint32_t vram_off = g_display_fb.vaddr & 0x1FFFFFu;
+            const int fmt = d012::g_ge_last_fbfmt;
+            const std::size_t stride = d012::g_ge_last_fbw > 0 ? d012::g_ge_last_fbw
+                                     : (g_display_fb.stride > 0 ? g_display_fb.stride : 512u);
+            const std::size_t bpp = fmt == 3 ? 4u : 2u;
+            const std::size_t fb_bytes = stride * 272u * bpp;
+            const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
+                ? vram.data() + vram_off : vram.data();
+            d012::display_present(fb_ptr, static_cast<int>(stride), fmt);
+            d012::display_pump();
+        }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
     };
-    // sceDisplayWaitVblank() -> 0
-    s_handlers[0x089C5AD0u] = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-        ctx.gpr[2] = 0u;
-        ctx.pc = ctx.gpr[31];
-    };
+    s_handlers[0x089C5AD8u] = vblank_present;
+    s_handlers[0x089C5AD0u] = vblank_present;
+    s_handlers[0x089C5AC8u] = vblank_present;
     // sceDisplayGetFrameBuf -> returns current framebuf
     s_handlers[0x089C5AB8u] = [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
         const std::uint32_t ptr = ctx.gpr[4];
         if (ptr && rt.memory().contains(ptr, 4u))
             rt.memory().store32(ptr, s_framebuf.vaddr);
-        ctx.gpr[2] = 0u;
-        ctx.pc = ctx.gpr[31];
-    };
-    // sceDisplayGetCurrentHcount or similar
-    s_handlers[0x089C5AC8u] = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
     };
@@ -392,6 +449,56 @@ void register_hle(psprecomp::Runtime &rt) {
             ctx.pc = ctx.gpr[31];
         });
 
+// Stub out the jump-table dispatch function that crashes when task object
+// byte[96] indexes into an uninitialised table (null ptr + offset).
+    rt.register_function(0x08844F84u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+        ctx.gpr[2] = 0u;
+        ctx.pc = ctx.gpr[31];
+    }, "task_jt_dispatch_stub");
+
+// sceDisplayWaitVblankStart variants — present here so any thread calling vblank wait
+// gets a frame. This fires every time the game's render tasks yield to the display.
+    auto frame_present_fn = [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        static std::uint32_t s_frame = 0u;
+        ++s_frame;
+        // Execute any pending GE display list
+        if (psprecomp::g_ge_list_start != 0u && rt2.memory().contains(psprecomp::g_ge_list_start, 4u)) {
+            void *vram_ptr = rt2.memory().raw_pointer(0x04000000u, 0x200000u);
+            if (vram_ptr) {
+                const auto *dl = reinterpret_cast<const std::uint32_t *>(
+                    rt2.memory().raw_pointer(psprecomp::g_ge_list_start, 4u));
+                const auto &mem_vec = rt2.memory().bytes();
+                d012::ge_exec(dl, dl + 0x10000u, vram_ptr, 0x200000u,
+                              mem_vec.data(), mem_vec.size(), 0x08000000u);
+                psprecomp::g_ge_list_start = 0u;
+            }
+        }
+        if (d012::g_ge_last_fbw > 0u || g_display_fb.stride > 0u) {
+            const auto &vram = rt2.memory().vram_bytes();
+            const std::uint32_t vram_off = d012::g_ge_last_fbp & 0x1FFFFFu;
+            const int fmt = d012::g_ge_last_fbfmt;
+            const std::size_t stride = d012::g_ge_last_fbw > 0u ? d012::g_ge_last_fbw
+                                     : (g_display_fb.stride > 0u ? g_display_fb.stride : 512u);
+            const std::size_t bpp = fmt == 3 ? 4u : 2u;
+            const std::size_t fb_bytes = stride * 272u * bpp;
+            const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
+                ? vram.data() + vram_off : vram.data();
+            if (s_frame <= 3u || (s_frame & 0x3Fu) == 0u)
+                std::printf("[VBLANK-PRESENT] frame=%u vram_off=0x%X stride=%zu fmt=%d\n",
+                            s_frame, vram_off, stride, fmt);
+            d012::display_present(fb_ptr, static_cast<int>(stride), fmt);
+            if (!d012::display_pump()) { rt2.stop("window closed"); return; }
+        }
+        ctx.gpr[2] = 0u;
+        ctx.pc = ctx.gpr[31];
+        // Yield at vblank — let loading/audio threads run
+        if (s_live_threads.size() > 1u) rt2.stop("yield");
+    };
+    // Wire frame_present_fn to all sceDisplayWaitVblank* stubs so any path through them presents
+    rt.register_function(0x089C5AD8u, frame_present_fn, "sceDisplayWaitVblankStart");
+    rt.register_function(0x089C5AD0u, frame_present_fn, "sceDisplayWaitVblankStartCB");
+    rt.register_function(0x089C5AC8u, frame_present_fn, "sceDisplayWaitVblank");
+
 // Explicit HLE for CreateThread / StartThread wrapper addresses
 
     rt.register_function(0x00000000u, [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
@@ -449,16 +556,18 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_changethreadattr");
 
-    // sceKernelDelayThread(us) -> 0
-    rt.register_function(0x089C5F68u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    // sceKernelDelayThread(us) -> 0; yield to other threads
+    rt.register_function(0x089C5F68u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
+        if (s_live_threads.size() > 1u) rt2.stop("yield");
     }, "recomp_unit_delaythread");
 
-    // sceKernelDelayThreadCB(us) -> 0
-    rt.register_function(0x089C5FF0u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    // sceKernelDelayThreadCB(us) -> 0; yield to other threads
+    rt.register_function(0x089C5FF0u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
+        if (s_live_threads.size() > 1u) rt2.stop("yield");
     }, "recomp_unit_delaythreadcb");
 
     // sceKernelCreateSema(name, attr, initVal, maxVal, opt) -> uid
@@ -485,10 +594,11 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_signalsema");
 
-    // sceKernelWaitSema(uid, signal, timeout) -> 0
-    rt.register_function(0x089C5FC8u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    // sceKernelWaitSema(uid, signal, timeout) -> 0; yield to other threads
+    rt.register_function(0x089C5FC8u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
+        if (s_live_threads.size() > 1u) rt2.stop("yield");
     }, "recomp_unit_waitsema");
 
     // sceKernelWaitThreadEnd(uid, timeout) -> 0
@@ -597,19 +707,57 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_gelistenqueuehead");
 
-    // sceGeListSync(listid, syncType) -> 0
-    rt.register_function(0x089C5A48u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    // sceGeListSync(listid, syncType) -> 0; yield to other threads
+    rt.register_function(0x089C5A48u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         static std::uint32_t s_gls = 0u; ++s_gls;
         if (s_gls <= 6u) std::printf("[HLE] sceGeListSync #%u list=0x%08X ra=0x%08X\n",
             s_gls, psprecomp::g_ge_list_start, ctx.gpr[31]);
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
+        if (s_live_threads.size() > 1u) rt2.stop("yield");
     }, "recomp_unit_gelistsync");
 
-    // sceGeDrawSync(syncType) -> 0
-    rt.register_function(0x089C5A80u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    // sceGeDrawSync(syncType) -> 0; present frame and yield to other threads
+    rt.register_function(0x089C5A80u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        // Execute any still-pending GE list
+        if (psprecomp::g_ge_list_start != 0u && rt2.memory().contains(psprecomp::g_ge_list_start, 4u)) {
+            void *vram_ptr = rt2.memory().raw_pointer(0x04000000u, 0x200000u);
+            if (vram_ptr) {
+                const auto *dl = reinterpret_cast<const std::uint32_t *>(
+                    rt2.memory().raw_pointer(psprecomp::g_ge_list_start, 4u));
+                const auto &mem_vec = rt2.memory().bytes();
+                d012::ge_exec(dl, dl + 0x10000u, vram_ptr, 0x200000u,
+                              mem_vec.data(), mem_vec.size(), 0x08000000u);
+                psprecomp::g_ge_list_start = 0u;
+            }
+        }
+        // Present after draw sync — this is the frame boundary
+        {
+            static std::uint32_t s_ds = 0u; ++s_ds;
+            const auto &vram = rt2.memory().vram_bytes();
+            const std::uint32_t vram_off = d012::g_ge_last_fbp & 0x1FFFFFu;
+            const int fmt = d012::g_ge_last_fbfmt;
+            const std::size_t stride = d012::g_ge_last_fbw > 0u ? d012::g_ge_last_fbw
+                                     : (g_display_fb.stride > 0u ? g_display_fb.stride : 512u);
+            if (stride > 0u && fmt >= 0) {
+                const std::size_t bpp = fmt == 3 ? 4u : 2u;
+                const std::size_t fb_bytes = stride * 272u * bpp;
+                const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
+                    ? vram.data() + vram_off : vram.data();
+                if (s_ds <= 3u || (s_ds & 0x3Fu) == 0u)
+                    std::printf("[DRAWSYNC-PRESENT] #%u vram_off=0x%X stride=%zu fmt=%d\n", s_ds, vram_off, stride, fmt);
+                d012::display_present(fb_ptr, static_cast<int>(stride), fmt);
+                if (!d012::display_pump()) { rt2.stop("window closed"); return; }
+            }
+        }
+        // Set return value and resume PC before yielding so cooperative scheduler can resume
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
+        // Yield to other threads (loading, audio, etc.) — this is what PortableKit's
+        // Kernel does at every sceGeDrawSync: switch to the next ready thread
+        if (s_live_threads.size() > 1u) {
+            rt2.stop("yield");
+        }
     }, "recomp_unit_gedrawsync");
 
     // sceGeBreak(mode, pbresult) -> 0
@@ -878,7 +1026,7 @@ void register_hle(psprecomp::Runtime &rt) {
     // FUN_0887801C: subsystem registry — inits 40+ subsystems and stores their pointers.
     // All constructors (func_0x089DDxxx, func_0x08ACxxxx etc) are uncompiled gaps.
     // HLE: skip all constructors, just write the pointer assignments the game reads later.
-    rt.register_function(0x0F87801Cu, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+    rt.register_function(0x0887801Cu, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         static bool s_once = false;
         if (!s_once) { s_once = true; std::printf("[HLE] FUN_0887801C subsystem registry\n"); std::fflush(stdout); }
         auto store = [&](std::uint32_t dst, std::uint32_t src) {
@@ -1052,6 +1200,120 @@ void hle_run_next_thread(psprecomp::Runtime &rt) {
         rt.memory().store32(a, 0x00000001u);
     rt.run(td.entry, 2'000'000'000u);
     std::printf("[HLE] Thread uid=%u exited: %s\n", td.uid, rt.stop_reason().c_str());
+}
+
+// Cooperative round-robin scheduler — the real fix for multi-threaded PSP games.
+// Called from main.cpp after the initial entry thread exits with threads queued.
+// Allocates separate stacks per thread so context switches don't corrupt each other.
+void hle_run_cooperative(psprecomp::Runtime &rt) {
+    // Stack slots: render thread gets the standard slot; each extra thread gets its own
+    // We allocate stacks downward from 0x09F00000 (top of RAM), 128KB each
+    constexpr std::uint32_t kStackSize  = 0x20000u;  // 128 KB per thread
+    constexpr std::uint32_t kStacksTop  = 0x09F00000u;
+    const std::uint32_t slot_count = static_cast<std::uint32_t>(s_thread_queue.size()) + 1u;
+    (void)slot_count;
+
+    // Add all queued threads to s_live_threads
+    std::uint32_t stack_idx = 0u;
+    while (!s_thread_queue.empty()) {
+        ThreadDesc td = s_thread_queue.front();
+        s_thread_queue.pop_front();
+
+        SavedThreadCtx stc;
+        stc.uid       = td.uid;
+        stc.alive     = true;
+        stc.resume_pc = td.entry;
+        // Assign a fresh stack for this thread (below render thread's stack)
+        const std::uint32_t sp = kStacksTop - (stack_idx + 1u) * kStackSize;
+        stc.ctx.gpr[4]  = td.arglen;
+        stc.ctx.gpr[5]  = td.argp;
+        stc.ctx.gpr[29] = sp;
+        stc.ctx.gpr[26] = sp - kStackSize;
+        stc.ctx.gpr[28] = 0x08B6B260u;
+        stc.ctx.gpr[31] = 0x00000001u;
+        // Zero-init the stack region
+        for (std::uint32_t a = sp - kStackSize; a < sp; a += 4u)
+            if (rt.memory().contains(a, 4u)) rt.memory().store32(a, 0u);
+        std::printf("[COOP] queued thread uid=%u entry=0x%08X sp=0x%08X\n", td.uid, td.entry, sp);
+        s_live_threads.push_back(stc);
+        ++stack_idx;
+    }
+
+    if (s_live_threads.empty()) {
+        std::printf("[COOP] no threads to run\n");
+        return;
+    }
+
+    std::printf("[COOP] starting cooperative scheduler with %zu threads\n", s_live_threads.size());
+    int idx = 0;
+    int consecutive_dead = 0;
+
+    while (true) {
+        // Find next alive thread
+        int found = -1;
+        for (int i = 0; i < (int)s_live_threads.size(); ++i) {
+            int j = (idx + i) % (int)s_live_threads.size();
+            if (s_live_threads[j].alive) { found = j; break; }
+        }
+        if (found < 0) { std::printf("[COOP] all threads dead, done\n"); break; }
+        idx = found;
+
+        SavedThreadCtx &stc = s_live_threads[idx];
+        s_current_thread_idx = idx;
+
+        // Restore context and run
+        rt.context() = stc.ctx;
+        rt.context().pc = stc.resume_pc;
+        const std::uint32_t run_pc = stc.resume_pc;
+        static std::uint64_t s_slice = 0u;
+        if ((++s_slice & 0xFFu) == 0u)
+            std::printf("[COOP] thread[%d] uid=%u resume=0x%08X\n", idx, stc.uid, run_pc);
+
+        rt.run(run_pc, 50'000'000u); // 50M dispatches per slice
+
+        const std::string &reason = rt.stop_reason();
+        // Save context
+        stc.ctx       = rt.context();
+        stc.resume_pc = rt.context().pc;
+
+        if (reason == "yield") {
+            // Thread yielded — context already saved, advance to next
+            consecutive_dead = 0;
+        } else if (reason == "window closed") {
+            std::printf("[COOP] window closed, exiting\n");
+            return;
+        } else if (reason == "thread exited normally" || reason == "sceKernelTerminateThread") {
+            std::printf("[COOP] thread[%d] uid=%u done: %s\n", idx, stc.uid, reason.c_str());
+            stc.alive = false;
+            ++consecutive_dead;
+        } else {
+            // Slice expired or unknown stop — resume from current PC
+            consecutive_dead = 0;
+        }
+
+        // Check if any new threads were queued during execution
+        while (!s_thread_queue.empty()) {
+            ThreadDesc td = s_thread_queue.front();
+            s_thread_queue.pop_front();
+            SavedThreadCtx nstc;
+            nstc.uid       = td.uid;
+            nstc.alive     = true;
+            nstc.resume_pc = td.entry;
+            ++stack_idx;
+            const std::uint32_t sp = kStacksTop - stack_idx * kStackSize;
+            nstc.ctx.gpr[4]  = td.arglen;
+            nstc.ctx.gpr[5]  = td.argp;
+            nstc.ctx.gpr[29] = sp;
+            nstc.ctx.gpr[26] = sp - kStackSize;
+            nstc.ctx.gpr[28] = 0x08B6B260u;
+            nstc.ctx.gpr[31] = 0x00000001u;
+            std::printf("[COOP] new thread uid=%u entry=0x%08X sp=0x%08X\n", td.uid, td.entry, sp);
+            s_live_threads.push_back(nstc);
+        }
+
+        // Advance to next thread
+        idx = (idx + 1) % (int)s_live_threads.size();
+    }
 }
 
 // ---- Public file I/O helpers (called from generated_unit_0014.cpp) ----

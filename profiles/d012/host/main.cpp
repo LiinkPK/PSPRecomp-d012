@@ -129,8 +129,13 @@ int main(int argc, char *argv[]) {
         runtime.context().gpr[29] = 0x09F00000u;
         runtime.run(run_entry, 1'000'000'000u);
         std::printf("Exited: %s\n", runtime.stop_reason().c_str());
-        while (d012::hle_has_pending_threads()) {
-            d012::hle_run_next_thread(runtime);
+        // If the initial entry thread queued other threads (render, loading, audio...),
+        // run them all cooperatively — each thread gets time slices and yields at GE
+        // sync points so loading threads can populate vertex/texture data before the
+        // render thread draws. This is exactly how PortableKit's Kernel works.
+        if (d012::hle_has_pending_threads()) {
+            std::printf("[MAIN] entering cooperative scheduler\n");
+            d012::hle_run_cooperative(runtime);
         }
         std::printf("All threads done\n");
     } catch (const std::exception &e) {

@@ -54272,28 +54272,8 @@ L_0888251C:
     // freehead was confirmed at 0x09B487BC (slot 31, last slot) at runtime.
     // We zero the slot, set wrapper+24=0 (dispatch state), and store it in
     // 0x09B4CF98 so unit-14's activation promotes it to the active scene list.
-    { static bool s_scene_created = false;
-      if (!s_scene_created && aot_mem.aot_load8(0x089D6C98u) != 0u
-          && aot_mem.aot_load32(0x09B4CF98u) == 0u
-          && aot_mem.aot_load32(0x09B48358u) == 0u) {
-          // Static pool: base=0x09B48360, 32 slots x 36 bytes.
-          // Slot 31 (last) = 0x09B48360 + 31*36 = 0x09B487BC.
-          constexpr std::uint32_t kWrapper = 0x09B487BCu;
-          // Zero-fill all 36 bytes of the slot.
-          for (std::uint32_t i = 0u; i < 36u; i += 4u)
-              aot_mem.aot_store32(kWrapper + i, 0u);
-          // wrapper+24 = 0: dispatch state 0 -> FUN_08874680 (animation tick).
-          // wrapper+20 = 0.0f: duration 0 -> animation immediately advances to state 2.
-          // State 2 -> FUN_088745E8 dispatches to FUN_0887487C which adds to render list.
-          aot_mem.aot_store32(kWrapper + 24u, 0u);
-          // Write wrapper into pending list so unit-14 activation promotes it.
-          aot_mem.aot_store32(0x09B4CF98u, kWrapper);
-          std::printf("[STATIC-WRAPPER] placed 0x%08X in pending=0x%08X\n",
-                      kWrapper, aot_mem.aot_load32(0x09B4CF98u));
-          std::fflush(stdout);
-          s_scene_created = true;
-      }
-    }
+    // STATIC-WRAPPER disabled: injecting a partially-zeroed wrapper crashes in
+    // FUN_08874680 which reads wrapper+64/68 expecting valid function pointers.
     { static std::uint32_t s_dispatch_count = 0u;
       static std::uint32_t s_last_tbl0 = 0u;
       static std::uint32_t s_last_fn   = 0u;
@@ -54366,17 +54346,26 @@ L_0888251C:
               if (s_bad <= 5u || (s_bad & 0xFFFu) == 0u)
                   std::printf("[CHAIN-BAD#%u] fn=0x%08X pc=0x%08X after %d iters\n", s_bad, task_fn_saved, ctx.pc, chain_iters);
               // Restore scheduler registers so the scheduler loop continues cleanly.
-              // Jump to L_08882538 (skip task-struct gpr[17]/gpr[18] restore which uses
-              // potentially clobbered gpr[19] fields).
               ctx.gpr[16] = sched_gpr16_saved;
               ctx.gpr[17] = sched_gpr17_saved;
               ctx.gpr[18] = sched_gpr18_saved;
-              ctx.gpr[19] = sched_gpr19_saved;
+              // Advance gpr[19] past the bad task so the loop doesn't re-dispatch it.
+              // task.next is at offset 52 (0x34). If next==0 try the head of the list.
+              {
+                  const std::uint32_t bad_task = sched_gpr19_saved;
+                  std::uint32_t next_task = (bad_task != 0u) ? aot_mem.aot_load32(bad_task + 52u) : 0u;
+                  if (next_task == 0u && sched_gpr16_saved != 0u)
+                      next_task = aot_mem.aot_load32(sched_gpr16_saved + 4u);
+                  if (s_bad <= 5u) std::printf("[CHAIN-BAD] advancing task 0x%08X -> 0x%08X\n", bad_task, next_task);
+                  ctx.gpr[19] = next_task;
+              }
               ctx.gpr[20] = sched_gpr20_saved;
               ctx.gpr[21] = sched_gpr21_saved;
               ctx.gpr[29] = sched_sp_saved;
-              ctx.pc = 0x08882538u;
-              goto L_08882538;
+              // Exit the scheduler so the render thread can present and loop.
+              ctx.gpr[19] = 0u;
+              ctx.pc = 0x08882590u;
+              goto L_08882590;
           }
           // budget exhausted — ctx.pc is where execution paused; re-enter
           ++chain_iters;

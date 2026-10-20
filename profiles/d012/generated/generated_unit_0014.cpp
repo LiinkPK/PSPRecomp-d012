@@ -4186,6 +4186,17 @@ L_089C5A78: // sceGeListEnQueue(list, stall, cbid, arg) -> list_id
                 std::printf("[GE-EXEC] list=0x%08X nonzero_px=%u\n", list_phys, nonzero);
                 fflush(stdout);
               }
+              // Present after every GE list execution
+              { const auto &vram2 = rt.memory().vram_bytes();
+                const std::uint32_t voff = d012::g_ge_last_fbp & 0x1FFFFFu;
+                const int fmt2 = d012::g_ge_last_fbfmt;
+                const std::size_t stride2 = d012::g_ge_last_fbw > 0u ? d012::g_ge_last_fbw : 512u;
+                const std::size_t bpp2 = fmt2 == 3 ? 4u : 2u;
+                const std::size_t fbb = stride2 * 272u * bpp2;
+                const std::uint8_t *fbp2 = (voff + fbb <= vram2.size()) ? vram2.data() + voff : vram2.data();
+                d012::display_present(fbp2, static_cast<int>(stride2), fmt2);
+                if (!d012::display_pump()) { rt.stop("window closed"); return; }
+              }
           }
       }
       ctx.gpr[2] = s_geq++;
@@ -4195,7 +4206,23 @@ L_089C5A78: // sceGeListEnQueue(list, stall, cbid, arg) -> list_id
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
-L_089C5A80: // sceGeDrawSync(syncType) -> 0
+L_089C5A80: // sceGeDrawSync(syncType) -> 0  [present frame here]
+    {
+        static std::uint32_t s_ds = 0u; ++s_ds;
+        // g_ge_last_fbfmt/fbp/fbw declared in ge_render.hpp
+        const auto &vram = rt.memory().vram_bytes();
+        const std::uint32_t vram_off = d012::g_ge_last_fbp & 0x1FFFFFu;
+        const int fmt = d012::g_ge_last_fbfmt;
+        const std::size_t stride = d012::g_ge_last_fbw > 0u ? d012::g_ge_last_fbw : 512u;
+        const std::size_t bpp = fmt == 3 ? 4u : 2u;
+        const std::size_t fb_bytes = stride * 272u * bpp;
+        const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
+            ? vram.data() + vram_off : vram.data();
+        if (s_ds <= 3u || (s_ds & 0x3Fu) == 0u)
+            std::printf("[DRAWSYNC-PRESENT] #%u off=0x%X stride=%zu fmt=%d\n", s_ds, vram_off, stride, fmt);
+        d012::display_present(fb_ptr, static_cast<int>(stride), fmt);
+        d012::display_pump();
+    }
     ctx.gpr[2] = 0u;
     jump_target = ctx.gpr[31];
     ctx.pc = jump_target;
@@ -4369,14 +4396,17 @@ L_089C5AC0: // sceDisplaySetFrameBuf(buf, bufWidth, pixelFormat, sync)
           const auto &vram = rt.memory().vram_bytes();
           const d012::DisplayFbInfo &fb = d012::g_display_fb;
           const std::uint32_t vram_off = fb.vaddr & 0x1FFFFFu;
-          const std::size_t stride = fb.stride > 0 ? fb.stride : buf_w;
-          const std::size_t bpp = fb.fmt == 3 ? 4u : 2u;
+          // Use the pixel format the GE actually wrote, not what the game told sceDisplaySetFrameBuf
+          const int present_fmt = d012::g_ge_last_fbfmt;
+          const std::size_t stride = (d012::g_ge_last_fbw > 0) ? d012::g_ge_last_fbw
+                                   : (fb.stride > 0 ? fb.stride : static_cast<std::uint32_t>(buf_w));
+          const std::size_t bpp = present_fmt == 3 ? 4u : 2u;
           const std::size_t fb_bytes = stride * 272u * bpp;
           const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
               ? vram.data() + vram_off : vram.data();
-          std::printf("[display] guest framebuffer vaddr=0x%08X off=0x%X stride=%zu fmt=%d\n",
-                      fb.vaddr, vram_off, stride, fb.fmt);
-          d012::display_present(fb_ptr, static_cast<int>(stride), fb.fmt);
+          std::printf("[display] guest framebuffer vaddr=0x%08X off=0x%X stride=%zu ge_fmt=%d sce_fmt=%d\n",
+                      fb.vaddr, vram_off, stride, present_fmt, fb.fmt);
+          d012::display_present(fb_ptr, static_cast<int>(stride), present_fmt);
           d012::display_pump();
       }
     }
@@ -4656,17 +4686,18 @@ L_089C5AC8: // sceDisplayWaitVblankStartCB() — execute pending DL, present, wa
       // Present: use the framebuffer address set by sceDisplaySetFrameBuf.
       { const auto &vram = rt.memory().vram_bytes();
         const d012::DisplayFbInfo &fb = d012::g_display_fb;
-        // fb.vaddr is a PSP virtual address (0x04000000 base for VRAM).
-        const std::uint32_t vram_off = fb.vaddr & 0x1FFFFFu; // VRAM-relative offset
-        const std::size_t stride = (fb.stride > 0) ? fb.stride : 512u;
-        const std::size_t bpp    = (fb.fmt == 3) ? 4u : 2u;
+        const std::uint32_t vram_off = fb.vaddr & 0x1FFFFFu;
+        const int present_fmt = d012::g_ge_last_fbfmt;
+        const std::size_t stride = (d012::g_ge_last_fbw > 0) ? d012::g_ge_last_fbw
+                                 : (fb.stride > 0 ? fb.stride : 512u);
+        const std::size_t bpp = (present_fmt == 3) ? 4u : 2u;
         const std::size_t fb_bytes = stride * 272u * bpp;
         if (s_vcb_frame <= 5u)
-            std::printf("[VCB-PRESENT] frame=%u vaddr=0x%08X off=0x%X stride=%zu fmt=%d\n",
-                        s_vcb_frame, fb.vaddr, vram_off, stride, fb.fmt);
+            std::printf("[VCB-PRESENT] frame=%u vaddr=0x%08X off=0x%X stride=%zu ge_fmt=%d sce_fmt=%d\n",
+                        s_vcb_frame, fb.vaddr, vram_off, stride, present_fmt, fb.fmt);
         const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
             ? vram.data() + vram_off : vram.data();
-        d012::display_present(fb_ptr, static_cast<int>(stride), fb.fmt);
+        d012::display_present(fb_ptr, static_cast<int>(stride), present_fmt);
       }
       static auto s_vblank_cb_start = std::chrono::steady_clock::now();
       const auto now = std::chrono::steady_clock::now();
@@ -4741,15 +4772,17 @@ L_089C5AD0: // sceDisplayWaitVblankStart() — wait until next 16ms boundary, ex
       { const auto &vram = rt.memory().vram_bytes();
         const d012::DisplayFbInfo &fb = d012::g_display_fb;
         const std::uint32_t vram_off = fb.vaddr & 0x1FFFFFu;
-        const std::size_t stride = (fb.stride > 0) ? fb.stride : 512u;
-        const std::size_t bpp    = (fb.fmt == 3) ? 4u : 2u;
+        const int present_fmt = d012::g_ge_last_fbfmt;
+        const std::size_t stride = (d012::g_ge_last_fbw > 0) ? d012::g_ge_last_fbw
+                                 : (fb.stride > 0 ? fb.stride : 512u);
+        const std::size_t bpp = (present_fmt == 3) ? 4u : 2u;
         const std::size_t fb_bytes = stride * 272u * bpp;
         if (s_vblank_frame <= 5u)
-            std::printf("[VSYNC-PRESENT] frame=%u vaddr=0x%08X off=0x%X stride=%zu fmt=%d\n",
-                        s_vblank_frame, fb.vaddr, vram_off, stride, fb.fmt);
+            std::printf("[VSYNC-PRESENT] frame=%u vaddr=0x%08X off=0x%X stride=%zu ge_fmt=%d sce_fmt=%d\n",
+                        s_vblank_frame, fb.vaddr, vram_off, stride, present_fmt, fb.fmt);
         const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
             ? vram.data() + vram_off : vram.data();
-        d012::display_present(fb_ptr, static_cast<int>(stride), fb.fmt);
+        d012::display_present(fb_ptr, static_cast<int>(stride), present_fmt);
       }
       // Wait for the next 16ms boundary.
       const auto now = std::chrono::steady_clock::now();

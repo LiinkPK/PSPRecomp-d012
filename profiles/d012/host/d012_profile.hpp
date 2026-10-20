@@ -49,4 +49,9 @@ void          hle_signal_sema(std::uint32_t uid, std::uint32_t signal);
 std::uint32_t hle_create_thread(std::uint32_t entry, std::uint32_t priority, std::uint32_t stack_size);
 void          hle_start_thread(std::uint32_t uid, std::uint32_t arglen, std::uint32_t argp);
 std::uint32_t hle_create_event_flag();
+
+// Cooperative thread scheduler — runs all live threads in round-robin, yielding
+// at GE sync points. Call this instead of hle_run_next_thread in main after
+// the initial entry thread exits.
+void hle_run_cooperative(psprecomp::Runtime &rt);
 } // namespace d012

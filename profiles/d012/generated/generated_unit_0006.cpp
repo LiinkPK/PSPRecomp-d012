@@ -30035,6 +30035,21 @@ L_088D2B90:
     ctx.gpr[4] = (ctx.gpr[16] | 0u);
     ctx.gpr[31] = (0x088D2BB4u);
     ctx.gpr[5] = (ctx.gpr[29] | 0u);
+    { static unsigned s_pre_log = 0u;
+      if (s_pre_log++ < 16u) {
+          const std::uint32_t str_addr = ctx.gpr[16];
+          char buf[32] = {};
+          for (int i = 0; i < 31 && str_addr != 0u; i++) {
+              char c = (char)aot_mem.aot_load8(str_addr + (std::uint32_t)i);
+              buf[i] = c; if (!c) break;
+          }
+          std::printf("[MPK-PATH-PRE] str_addr=0x%08X str='%s' bytes=%02X %02X %02X %02X\\n",
+                      str_addr, buf,
+                      (unsigned)aot_mem.aot_load8(str_addr+0), (unsigned)aot_mem.aot_load8(str_addr+1),
+                      (unsigned)aot_mem.aot_load8(str_addr+2), (unsigned)aot_mem.aot_load8(str_addr+3));
+          fflush(stdout);
+      }
+    }
     if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 2427u, 0x08870B10u>(ctx, &aot_mem) && ctx.pc == 0x088D2BB4u) goto L_088D2BB4;
     return;
 L_088D2BB4:

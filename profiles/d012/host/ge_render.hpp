@@ -15,4 +15,9 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
              const void *mem, std::size_t mem_size,
              std::uint32_t initial_base_addr = 0u);
 
+// Framebuffer state written by the most recent ge_exec call.
+extern int          g_ge_last_fbfmt;   // 0=RGB565, 1=RGBA5551, 2=RGBA4444, 3=RGBA8888
+extern std::uint32_t g_ge_last_fbp;   // byte offset into VRAM
+extern std::uint32_t g_ge_last_fbw;   // stride in pixels
+
 } // namespace d012
