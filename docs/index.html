@@ -303,10 +303,10 @@
         summary: "Parse PSP GE display lists and translate to host draw calls. The main technical challenge of the port.",
         tasks: [
           { id: "p3-t1", name: "Understand sceGu calls as recompiled MIPS code",               note: "Game builds display lists directly in RAM",  done: true  },
-          { id: "p3-t2", name: "GE command interpreter skeleton (CLEAR, 2D sprites, flat-color)", note: "Software rasterizer handles basic 2D",    done: true  },
-          { id: "p3-t3", name: "Texture sampling — RGB565, RGBA8888, DXT, CLUT",               note: "Block-compressed + index-color formats",    done: true  },
+          { id: "p3-t2", name: "GE command interpreter skeleton (CLEAR, 2D sprites, flat-color)", note: "Software rasterizer handles basic 2D (Handled by PortableKit)",    done: true  },
+          { id: "p3-t3", name: "Texture sampling — RGB565, RGBA8888, DXT, CLUT",               note: "Block-compressed + index-color formats (Handled by PortableKit)",    done: true  },
           { id: "p3-t4", name: "First non-zero pixel output",                                    note: "Migrated to PortableKit; blocker: invoke_chained_direct into unit_9 returns ctx.pc=0, causing loader thread loop", done: false },
-          { id: "p3-t5", name: "Translate display lists to Vulkan / DX12 / OpenGL",             note: "GPU backend: after software raster proven", done: false },
+          { id: "p3-t5", name: "Translate display lists to Vulkan",                              note: "GE commands translate to Vulkan internally (Handled by PortableKit)", done: true  },
           { id: "p3-t6", name: "Validate GE interpreter against PPSSPP frame dumps",            note: "Frame-by-frame comparison milestone",       done: false },
         ]
       },
