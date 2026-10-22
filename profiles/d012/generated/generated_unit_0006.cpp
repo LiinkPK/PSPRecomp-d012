@@ -21785,6 +21785,7 @@ L_088CE114:
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4549u, 0x089A00F4u>(ctx, &aot_mem) && ctx.pc == 0x088CE11Cu) goto L_088CE11C;
     return;
 L_088CE11C:
+    { static std::uint32_t s_ce11c=0; if(++s_ce11c<=3) { std::printf("[CE11C#%u] v0=0x%08X gpr16=0x%08X gpr8=0x%08X sp=0x%08X ra=0x%08X\n",s_ce11c,ctx.gpr[2],ctx.gpr[16],ctx.gpr[8],ctx.gpr[29],ctx.gpr[31]); std::fflush(stdout); } }
     ctx.gpr[17] = (ctx.gpr[2] | 0u);
     { const bool branch_taken = ctx.gpr[17] != 0u;
     // nop

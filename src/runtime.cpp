@@ -556,6 +556,8 @@ void Runtime::register_function(std::uint32_t address, RecompiledFunction functi
         const std::uint32_t unit_delta = c - generated_unit_base_;
         const std::size_t unit_index = static_cast<std::size_t>(unit_delta / generated_unit_span_);
         if (unit_index < kGeneratedUnitFastCapacity) {
+            std::printf("[POISON] unit=%zu addr=0x%08X name=%s\n", unit_index, address, functions_[address].name.c_str());
+            std::fflush(stdout);
             generated_unit_disabled_[unit_index] = 1u;
             generated_units_[unit_index] = nullptr;
         }

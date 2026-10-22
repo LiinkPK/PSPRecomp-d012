@@ -50776,7 +50776,8 @@ L_089A00E8:
 L_089A00F4:
     ctx.gpr[9] = (2479u << 16u);
     ctx.gpr[11] = (aot_mem.aot_load32(ctx.gpr[9] + static_cast<std::uint32_t>(26672)));
-    { const uint32_t _slot11 = ctx.gpr[11]; const uint32_t _dp11 = _slot11 ? aot_mem.aot_load32(_slot11+8) : 0u; if (_slot11 == 0u || _dp11 < 0x08800000u || _dp11 >= 0x09F00000u) { jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target; if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; } return; } }
+    { static std::uint32_t s_a00f4=0; if(++s_a00f4<=3){ std::printf("[A00F4#%u] pool_desc_ptr=0x%08X(at 0x%08X) a0=0x%08X\n",s_a00f4,ctx.gpr[11],ctx.gpr[9]+26672,ctx.gpr[4]); if(ctx.gpr[11]>=0x08000000u&&ctx.gpr[11]<0x09F00000u){std::printf("  pool[0]=0x%08X pool[4]=0x%08X pool[8]=0x%08X\n",aot_mem.aot_load32(ctx.gpr[11]),aot_mem.aot_load32(ctx.gpr[11]+4),aot_mem.aot_load32(ctx.gpr[11]+8));} std::fflush(stdout);} }
+    { const uint32_t _slot11 = ctx.gpr[11]; const bool _slot11_valid = _slot11 >= 0x08000000u && _slot11 < 0x09F00000u; const uint32_t _dp11 = _slot11_valid ? aot_mem.aot_load32(_slot11+8) : 0u; /* accept cached 0x08-0x09 and uncached 0x48-0x49 PSP RAM aliases */ const bool _dp_valid = (_dp11 >= 0x08000000u && _dp11 < 0x09F00000u) || (_dp11 >= 0x48000000u && _dp11 < 0x49F00000u); if (!_slot11_valid || !_dp_valid) { ctx.gpr[2] = 0u; jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target; if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; } return; } }
     { const uint32_t _dp = ctx.gpr[11] ? aot_mem.aot_load32(ctx.gpr[11]+8) : 0u;
       if (ctx.gpr[11] == 0u || _dp == 0u) { ctx.gpr[2] = 0u; jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target; if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; } return; } }
     ctx.gpr[14] = (ctx.gpr[4] + static_cast<std::uint32_t>(3));
@@ -53792,6 +53793,19 @@ L_089A22A4:
     aot_mem.aot_store32(ctx.gpr[8] + static_cast<std::uint32_t>(26552), 0u);
     // Init: point DAT_09af6830 at slot-0 (GE_struct_base+76 = 0x09AF67F4)
     aot_mem.aot_store32(ctx.gpr[8] + static_cast<std::uint32_t>(26672), static_cast<std::uint32_t>(0x09AF67F4u));
+    // ARCH-SYNTH: the pool descriptor at 0x09AF67F4[+8] is the arena write-cursor.
+    // On PSP the ELF's initialized data sets it; here BSS is zero so it starts at 0
+    // and each 48-byte allocation writes to near-null addresses then crashes.
+    // Set cursor = 0x09AF6804 (just past the descriptor header) so allocations land
+    // in the 0x09AF6xxx region which is cleared BSS — plenty of space before 0x09AF87F0.
+    { constexpr std::uint32_t kPoolDesc = 0x09AF67F4u;
+      constexpr std::uint32_t kArenaStart = 0x09AF6E00u; // past all 5 pool slots (end ~0x09AF6D2C)
+      if (aot_mem.aot_load32(kPoolDesc + 8u) == 0u) {
+          aot_mem.aot_store32(kPoolDesc + 8u, kArenaStart);
+          std::printf("[POOL-INIT] pool@0x%08X arena_cursor=0x%08X\n", kPoolDesc, kArenaStart);
+          fflush(stdout);
+      }
+    }
     jump_target = ctx.gpr[31];
     aot_mem.aot_store32(ctx.gpr[7] + static_cast<std::uint32_t>(4), 0u);
     ctx.pc = jump_target;

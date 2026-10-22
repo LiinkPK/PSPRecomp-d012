@@ -10,6 +10,7 @@ class Elf32Image;
 
 namespace d012 {
 void register_hle(psprecomp::Runtime &rt);
+void set_runtime(psprecomp::Runtime &rt);
 void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image &elf);
 std::uint32_t hle_alloc(std::uint32_t size);
 std::uint32_t hle_alloc_size();

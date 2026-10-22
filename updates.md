@@ -1,6 +1,6 @@
 ﻿# PSPRecomp â€“ Dissidia 012 (ULES01505.BIN) â€“ Current State
 
-**Last updated:** 18/10/2026 (Session 12)
+**Last updated:** 22/10/2026 (Session 13)
 
 **Goal:** Genuinely boot Dissidia 012â€™s original startup path and visibly render the authentic Square Enix logo through guest asset I/O â†’ guest VRAM â†’ GE â†’ the native window. A blank window, hard-coded logo, placeholder, or host overlay does not count.
 
@@ -316,3 +316,24 @@ general_archive/field/ZQ/field_lang.bin â† not yet loaded
 - Write tracing proved that translated FUN_08935524 overwrites MPK table 0x089CC268 before parsing.
 - That corruption creates invalid archive sizes and leaves the GE trace at zero drawable primitives.
 - The authentic logo remains unverified; the exact data-flow correction is the next task.
+
+### Session 13 - PortableKit migration (22/10/2026)
+
+**Goal this session:** migrate D012 from the old standalone build to PortableKit's framework so it uses the same Vulkan renderer, window, and cooperative kernel as Tenkawa (DBZ Tenkaichi Tag Team), which already works.
+
+**No roadmap progress.** The session was entirely spent on bootstrapping the PortableKit build. The old MPK/archive/rendering blocker is unchanged.
+
+**What was done:**
+
+- Created `profiles/d012_pk/` — a new CMakeLists that wires D012's generated units into `portablekit_add_game()`.
+- Created `profiles/d012/host/d012_portablekit_profile.cpp` — the PortableKit `game()` profile for ULES01505.
+- Fixed disc_id to `ULES01505` (European release); installer was rejecting it as unsupported.
+- Fixed installer SHA256 check: null/empty hash now bypasses the check, accepting the pre-decrypted ELF.
+- Added FetchContent auto-download for SDL3 3.2.14 to `PortableKit.cmake` so the build is self-contained.
+- Added entry redirect at address `0x00000000` → `load_base 0x08804040` (ET_EXEC ELF has `e_entry=0`).
+- Removed interpreter stubs at `0x089C5F28/40/A0/D0` that were overriding unit_0014's AOT registrations, causing an infinite `sceKernelCreateThread` loop.
+- Identified root cause of freeze: unit_0014 intercepts `sceKernelCreateThread` (`0x089C5FD0`) and `sceKernelStartThread` (`0x089C5FA0`) inline, routing them to `d012::hle_create_thread`/`hle_start_thread`. Those functions only queued the thread in `d012::s_thread_queue`, which nothing drained in the PortableKit build (the old `main.cpp`'s `hle_run_cooperative` was never called).
+- Fixed `d012::hle_create_thread` and `d012::hle_start_thread` to call `portablekit::kernel().create_thread()` / `.start_thread()` so PortableKit's cooperative scheduler owns the thread.
+- Added `d012::set_runtime(rt)` called from `patch_loaded_image` to give `d012_profile.cpp` access to the runtime for kernel calls.
+
+**Current state:** Build is running. The game reached `sceKernelCreateThread uid=1 entry=0x08804160` before this fix — the thread was being created but never started. With this fix PortableKit's kernel owns the thread and should schedule it. Window and rendering not yet verified.

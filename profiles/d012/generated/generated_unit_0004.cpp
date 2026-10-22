@@ -49727,6 +49727,7 @@ L_088A1EA0:
     ctx.gpr[31] = (0x088A1EBCu);
     ctx.gpr[4] = (ctx.gpr[4] + ctx.gpr[6]);
     ctx.pc = jump_target;
+    { static std::uint32_t s_vtlog=0; if(++s_vtlog<=8u){std::printf("[1E44-VT] scene=0x%08X vt_fn=0x%08X a0=0x%08X\n",ctx.gpr[16],jump_target,ctx.gpr[4]); fflush(stdout);} }
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088A1EBCu) goto L_088A1EBC;
     return;
 L_088A1EBC:
@@ -50770,6 +50771,7 @@ L_088A26A4:
     ctx.gpr[31] = (0x088A26C0u);
     ctx.gpr[4] = (ctx.gpr[4] + ctx.gpr[6]);
     ctx.pc = jump_target;
+    { static std::uint32_t s_2664vt=0; if(++s_2664vt<=8u){std::printf("[2664-VT] scene=0x%08X match_fn=0x%08X a0=0x%08X\n",ctx.gpr[18],jump_target,ctx.gpr[4]); fflush(stdout);} }
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x088A26C0u) goto L_088A26C0;
     return;
 L_088A26C0:

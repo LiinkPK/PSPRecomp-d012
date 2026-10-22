@@ -1030,6 +1030,19 @@ L_0887825C:
     return;
 L_08878264:
     { static std::uint32_t s_trace=0; if (++s_trace <= 8u) { std::printf("[SCHED-CB-WRITE] 08878264 gpr16=0x%08X gpr17=0x%08X gpr18=0x%08X cbslot=0x%08X\n", ctx.gpr[16], ctx.gpr[17], ctx.gpr[18], rt.memory().aot_load32(0x089E09C0u)); fflush(stdout); } }
+    // ARCH-SYNTH: signal scene manager that loading is complete.
+    // On real PSP the loading thread signals a semaphore here; the scene manager
+    // then calls sceKernelCreateScene(0x2713) which sets 6039=1 and 603B=1.
+    // We inject that signal directly so FUN_08875364 (task[3]) sees it and fires.
+    { static bool s_load_done = false;
+      if (!s_load_done) {
+          s_load_done = true;
+          rt.memory().aot_store8(0x089D6039u, 1u);
+          rt.memory().aot_store8(0x089D603Bu, 1u);
+          rt.memory().aot_store8(0x089D603Au, 0u); // clear "skip first scene" flag
+          std::printf("[LOAD-DONE] injected 6039=1 603B=1 603A=0 — loading complete, scene transition armed\n"); fflush(stdout);
+      }
+    }
     ctx.set_gpr(4, 2206u << 16u);
     goto L_08878268;
 L_08878268:

@@ -193,9 +193,10 @@ static Vertex decode_vertex(const std::uint8_t *&p, std::uint32_t vt) {
 static const std::uint8_t *resolve_tex_ptr(std::uint32_t phys, std::size_t nbytes,
                                              const void *mem, std::size_t mem_size,
                                              const void *vram, std::size_t vram_size) {
+    // If upper byte is 0, default to VRAM (same as PortableKit resolve_ge_address)
+    if ((phys & 0xFF000000u) == 0u) phys |= 0x04000000u;
     static constexpr std::uint32_t kPhysBase = 0x08000000u;
     if (phys >= 0x04000000u && phys < 0x08000000u) {
-        // VRAM aliases 0x04000000-0x07FFFFFF → & 0x1FFFFF into 2MB VRAM
         const std::uint32_t off = phys & 0x1FFFFFu;
         if (off + nbytes <= vram_size) return static_cast<const std::uint8_t*>(vram) + off;
     } else if (phys >= kPhysBase) {
@@ -440,10 +441,11 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
     std::printf("[GE] exec #%u dl=%p dl_end=%p span=%zu\n", s_exec_count, (void*)dl, (void*)dl_end, (std::size_t)(dl_end - dl));
     std::fflush(stdout);
 
-    // Dump raw DL for diagnosis (first 12 execs)
+    // Dump raw DL for diagnosis — first 4 execs OR after scene activation (execs 5-20)
     { static std::uint32_t s_dc = 0; ++s_dc;
-      if (s_dc <= 12) {
-        std::size_t lim = (std::size_t)(dl_end - dl); if (lim > 128) lim = 128;
+      const bool do_dump = (s_dc <= 4) || (s_dc >= 5 && s_dc <= 20);
+      if (do_dump) {
+        std::size_t lim = (std::size_t)(dl_end - dl); if (lim > 512) lim = 512;
         std::printf("[GE-RAW#%u] span=%zu words:\n", s_dc, lim);
         for (std::size_t i = 0; i < lim; ++i) {
             if (i % 8 == 0) std::printf("  %04zx:", i*4);
@@ -575,14 +577,14 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
         case 0x9F: break; // ZBUFWIDTH — depth buffer width, ignore
 
         // Texture addresses (TEXADDR0-7 = 0xA0-0xA7, TEXBUFWIDTH0-7 = 0xA8-0xAF)
-        case 0xA0: gs.tbp[0] = (gs.base_addr & 0xFF000000u) | arg; break;
-        case 0xA1: gs.tbp[1] = (gs.base_addr & 0xFF000000u) | arg; break;
-        case 0xA2: gs.tbp[2] = (gs.base_addr & 0xFF000000u) | arg; break;
-        case 0xA3: gs.tbp[3] = (gs.base_addr & 0xFF000000u) | arg; break;
-        case 0xA4: gs.tbp[4] = (gs.base_addr & 0xFF000000u) | arg; break;
-        case 0xA5: gs.tbp[5] = (gs.base_addr & 0xFF000000u) | arg; break;
-        case 0xA6: gs.tbp[6] = (gs.base_addr & 0xFF000000u) | arg; break;
-        case 0xA7: gs.tbp[7] = (gs.base_addr & 0xFF000000u) | arg; break;
+        case 0xA0: gs.tbp[0] = (gs.base_extended & 0xFF000000u) | arg; break;
+        case 0xA1: gs.tbp[1] = (gs.base_extended & 0xFF000000u) | arg; break;
+        case 0xA2: gs.tbp[2] = (gs.base_extended & 0xFF000000u) | arg; break;
+        case 0xA3: gs.tbp[3] = (gs.base_extended & 0xFF000000u) | arg; break;
+        case 0xA4: gs.tbp[4] = (gs.base_extended & 0xFF000000u) | arg; break;
+        case 0xA5: gs.tbp[5] = (gs.base_extended & 0xFF000000u) | arg; break;
+        case 0xA6: gs.tbp[6] = (gs.base_extended & 0xFF000000u) | arg; break;
+        case 0xA7: gs.tbp[7] = (gs.base_extended & 0xFF000000u) | arg; break;
         case 0xA8: gs.tbw[0] = arg & 0xFFFFu; break;
         case 0xA9: gs.tbw[1] = arg & 0xFFFFu; break;
         case 0xAA: gs.tbw[2] = arg & 0xFFFFu; break;
@@ -640,20 +642,17 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
             const std::uint32_t count     = arg & 0xFFFFu;
             if (count == 0) break;
 
-            // gs.vaddr is already masked to 0x1FFFFFFF (physical address).
-            // PSP physical map: 0x04000000-0x041FFFFF = VRAM; 0x00000000-0x01FFFFFF = main RAM.
-            // mem pointer covers physical 0x00000000+ (PSP RAM), vram covers 0x04000000+.
-            const std::uint32_t va = gs.vaddr;
+            // Resolve GE address: if upper byte is 0, default to VRAM (same as PortableKit
+            // resolve_ge_address: (address & 0xFF000000) == 0 → address | 0x04000000).
+            // PSP physical map: 0x04000000-0x041FFFFF = VRAM; 0x08000000-0x09FFFFFF = RAM.
+            std::uint32_t va = gs.vaddr;
+            if ((va & 0xFF000000u) == 0u) va |= 0x04000000u;
             const std::uint8_t *vptr = nullptr;
             if (va >= 0x04000000u && va < 0x08000000u) {
                 // VRAM aliases: 0x04000000-0x07FFFFFF all map into 2MB VRAM via & 0x1FFFFF
                 const std::uint32_t voff = va & 0x1FFFFFu;
                 if (voff < vram_size)
                     vptr = static_cast<const std::uint8_t*>(vram) + voff;
-            } else if (va < 0x04000000u) {
-                // GE bus physical RAM range 0x00000000 - 0x03FFFFFF
-                if (va < mem_size)
-                    vptr = static_cast<const std::uint8_t*>(mem) + va;
             } else if (va >= 0x08000000u && va < 0x0A000000u) {
                 // GE bus RAM range 0x08000000 - 0x09FFFFFF (same physical RAM)
                 const std::uint32_t ram_off = va - 0x08000000u;

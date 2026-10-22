@@ -190,6 +190,10 @@
           <span class="font-bold text-tokyo-accent min-w-[3rem]">S12</span>
           <span class="text-tokyo-muted"><strong class="text-tokyo-text">MPK allocator tracing.</strong> Real embedded assets and the native framebuffer path are active. A large resource copy starts at guest address <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08993940</code> and overlaps MPK table <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x089CC268</code>, causing invalid archive sizes and zero drawable GE primitives. The allocator/free-list path remains to be corrected; no fake logo was added.</span>
         </div>
+        <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
+          <span class="font-bold text-tokyo-accent min-w-[3rem]">S13</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">PortableKit migration.</strong> Migrated the host runtime to PortableKit (same framework as the working Tenkaichi Tag Team port), replacing the custom HLE layer with its Vulkan renderer, kernel, GE state machine, and cooperative scheduler. The executable boots, loads the ELF, and registers 130 000+ AOT functions. <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">sceKernelCreateThread</code> and <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">sceKernelStartThread</code> route through PortableKit's kernel; the main game thread (uid=258) starts correctly. Current blocker: <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">invoke_chained_direct&lt;unit_9, 0x0893431C&gt;</code> fires unit_9 with <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ctx.pc=0x08804160</code> instead of the target address, returning false with <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ctx.pc=0</code> and looping the loader.</span>
+        </div>
       </div>
     </section>
 
@@ -231,7 +235,7 @@
     </section>
 
     <footer class="text-center text-xs text-tokyo-muted py-4 border-t border-tokyo-border">
-      PSPRecomp · Dissidia 012 PC Port · Last updated: 18/10/2026 ·
+      PSPRecomp · Dissidia 012 PC Port · Last updated: 23/10/2026 ·
       <a href="https://github.com/LiinkPK/PSPRecomp-d012" target="_blank" rel="noopener" class="hover:text-tokyo-accent">github.com/LiinkPK/PSPRecomp-d012</a>
     </footer>
 
@@ -263,7 +267,7 @@
         id: "phase-2",
         number: "2",
         title: "File I/O",
-        tagline: "Asset Loading & ISO File Access",
+        tagline: "Asset Loading & ISO File Access — Done",
         themeColor: "green",
         borderColor: "border-l-tokyo-green",
         summary: "Unlocks asset loading and bypasses early initialization crashes.",
@@ -287,7 +291,7 @@
           { id: "p3-t1", name: "Understand sceGu calls as recompiled MIPS code",               note: "Game builds display lists directly in RAM",  done: true  },
           { id: "p3-t2", name: "GE command interpreter skeleton (CLEAR, 2D sprites, flat-color)", note: "Software rasterizer handles basic 2D",    done: true  },
           { id: "p3-t3", name: "Texture sampling — RGB565, RGBA8888, DXT, CLUT",               note: "Block-compressed + index-color formats",    done: true  },
-          { id: "p3-t4", name: "First non-zero pixel output",                                    note: "Render chain OK; blocker: archive index table unpopulated → sub-chunks=0", done: false },
+          { id: "p3-t4", name: "First non-zero pixel output",                                    note: "Migrated to PortableKit; blocker: invoke_chained_direct into unit_9 returns ctx.pc=0, causing loader thread loop", done: false },
           { id: "p3-t5", name: "Translate display lists to Vulkan / DX12 / OpenGL",             note: "GPU backend: after software raster proven", done: false },
           { id: "p3-t6", name: "Validate GE interpreter against PPSSPP frame dumps",            note: "Frame-by-frame comparison milestone",       done: false },
         ]

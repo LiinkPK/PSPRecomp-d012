@@ -5680,6 +5680,7 @@ L_089C5F20:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5F28:
+    std::printf("[U14] 089C5F28 ra=0x%08X\n", ctx.gpr[31]); fflush(stdout);
     jump_target = ctx.gpr[31];
     // nop
     ctx.pc = jump_target;
@@ -5704,6 +5705,7 @@ L_089C5F38:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5F40:
+    std::printf("[U14] 089C5F40 ra=0x%08X\n", ctx.gpr[31]); fflush(stdout);
     jump_target = ctx.gpr[31];
     // nop
     ctx.pc = jump_target;
@@ -5841,6 +5843,7 @@ L_089C5FC8:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_089C5FD0: // sceKernelCreateThread(name, entry, priority, stackSize, attr, opt) -> uid
+    std::printf("[U14] 089C5FD0 CreateThread entry=0x%08X ra=0x%08X\n", ctx.gpr[5], ctx.gpr[31]); fflush(stdout);
     ctx.gpr[2] = d012::hle_create_thread(ctx.gpr[5], ctx.gpr[6], ctx.gpr[7]);
     jump_target = ctx.gpr[31];
     ctx.pc = jump_target;

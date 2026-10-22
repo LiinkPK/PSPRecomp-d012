@@ -1,0 +1,17 @@
+# Standalone D012 build using PortableKit (like Tenkawa).
+# Configure from PSPRecomp root:
+#   cmake -S profiles/d012 -B out/d012_pk -DPORTABLEKIT_ROOT=/path/to/portablekit
+#          -DSDL3_DIR=/path/to/SDL3/cmake
+#   cmake --build out/d012_pk --config Release
+
+cmake_minimum_required(VERSION 3.20)
+project(Dissidia012 VERSION 0.1.0 LANGUAGES CXX)
+
+set(PORTABLEKIT_ROOT "" CACHE PATH
+    "Path to PortableKit source directory")
+
+add_subdirectory("${PORTABLEKIT_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/portablekit")
+
+portablekit_add_game(d012_native
+    PROFILE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+    SOURCES host/d012_portablekit_profile.cpp)

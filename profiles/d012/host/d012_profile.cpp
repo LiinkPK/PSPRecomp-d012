@@ -4,6 +4,7 @@
 #include "win32_display.hpp"
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/elf32.hpp"
+#include "kernel/kernel.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -18,15 +19,14 @@
 #include <deque>
 #include <chrono>
 
-namespace psprecomp { extern std::uint64_t g_runtime_starvation_interval_fast; }
-
-// Frame-complete recovery address: set by FUN_08933458 before calling FUN_08882250.
-// When the task dispatch exits via null-pc (ra=0), invoke_chained_call in runtime.cpp
-// calls this hook to get the recovery PC, allowing the frame loop to continue.
+// These globals were defined in PSPRecomp's runtime.cpp; define them here
+// when building against PortableKit's runtime which doesn't have them.
+// g_ge_list_start, g_ge_exec_cursor, g_ge_list_executed are defined in
+// generated_unit_0014.cpp — only define the ones not already there.
 namespace psprecomp {
 std::uint32_t g_frame_recovery_pc = 0u;
-extern std::uint32_t (*g_frame_complete_hook)();
-extern std::uint32_t g_frame_reset_sp;
+std::uint32_t (*g_frame_complete_hook)() = nullptr;
+std::uint32_t g_frame_reset_sp = 0u;
 extern std::uint32_t g_ge_list_start;
 extern std::uint32_t g_ge_exec_cursor;
 extern bool          g_ge_list_executed;
@@ -101,6 +101,9 @@ static std::uint32_t s_heap_next = kHeapBase;
 struct MemBlock { std::uint32_t addr; std::uint32_t size; };
 static std::unordered_map<std::uint32_t, MemBlock> s_mem_blocks;
 static std::uint32_t s_next_uid = 1u;
+
+// Runtime pointer — set by register_hle; used by hle_start_thread to call PortableKit's kernel.
+static psprecomp::Runtime *s_runtime_ptr = nullptr;
 
 // File I/O — host file descriptor table (also used by io_open/read/close/lseek below)
 } // end anonymous namespace
@@ -381,7 +384,12 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
     std::printf("[scan] Registered %u stubs\n", total);
 }
 
+void set_runtime(psprecomp::Runtime &rt) {
+    s_runtime_ptr = &rt;
+}
+
 void register_hle(psprecomp::Runtime &rt) {
+    s_runtime_ptr = &rt;
     psprecomp::g_runtime_starvation_interval_fast = 0u;
     // Install frame-complete hook: when a function returns via ra=0 (null-PC)
     // while inside the render thread (after FUN_08933398 init), redirect to
@@ -491,6 +499,62 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
+
+        // ARCH-SYNTH: scene activation — once pending scene is set, call FUN_088A2664
+        // to run the scene's vtable startup (sets render state), then promote to active.
+        { static bool s_scene_activated = false;
+          if (!s_scene_activated) {
+              const std::uint32_t pending = rt2.memory().aot_load32(0x09B4CF98u);
+              const std::uint32_t active  = rt2.memory().aot_load32(0x09B48358u);
+              if (pending != 0u && active == 0u) {
+                  std::printf("[FRAME-SCENE-ACT] pending=0x%08X → calling FUN_088A2664\n", pending); fflush(stdout);
+                  // Save registers, call FUN_088A2664(pending, 0, 0.0f) via chained call,
+                  // then restore caller registers and promote pending→active.
+                  const std::uint32_t saved_pc  = ctx.pc;
+                  const std::uint32_t saved_ra  = ctx.gpr[31];
+                  const std::uint32_t saved_sp  = ctx.gpr[29];
+                  ctx.gpr[4]  = pending;
+                  ctx.gpr[5]  = 0u;
+                  ctx.fpr[12] = 0.0f;
+                  ctx.gpr[31] = 0x088A26DCu; // epilog/return address inside FUN_088A2664
+                  ctx.pc      = 0x088A2664u;
+                  rt2.invoke_chained_call(ctx);
+                  ctx.pc     = saved_pc;
+                  ctx.gpr[31]= saved_ra;
+                  ctx.gpr[29]= saved_sp;
+                  // Now promote pending → active
+                  rt2.memory().aot_store32(0x09B48358u, pending);
+                  rt2.memory().aot_store32(0x09B4835Cu, pending);
+                  rt2.memory().aot_store32(0x09B4CF98u, 0u);
+                  std::printf("[FRAME-SCENE-ACT] promoted 0x%08X to active\n", pending); fflush(stdout);
+                  s_scene_activated = true;
+              }
+          }
+        }
+
+        // ARCH-SYNTH: scene tick — call FUN_08874DFC and FUN_08873E6C every frame
+        // once the scene is active. These fill the GE display list with geometry.
+        { const std::uint32_t active = rt2.memory().aot_load32(0x09B48358u);
+          if (active != 0u) {
+              const std::uint32_t saved_pc  = ctx.pc;
+              const std::uint32_t saved_ra  = ctx.gpr[31];
+              const std::uint32_t saved_sp  = ctx.gpr[29];
+              // FUN_08874DFC(active)
+              ctx.gpr[4]  = active;
+              ctx.gpr[31] = 0x00000002u; // dummy return address (chained call ignores it)
+              ctx.pc      = 0x08874DFCu;
+              rt2.invoke_chained_call(ctx);
+              // FUN_08873E6C(active)
+              ctx.gpr[4]  = active;
+              ctx.gpr[31] = 0x00000002u;
+              ctx.pc      = 0x08873E6Cu;
+              rt2.invoke_chained_call(ctx);
+              ctx.pc     = saved_pc;
+              ctx.gpr[31]= saved_ra;
+              ctx.gpr[29]= saved_sp;
+          }
+        }
+
         // Yield at vblank — let loading/audio threads run
         if (s_live_threads.size() > 1u) rt2.stop("yield");
     };
@@ -498,6 +562,11 @@ void register_hle(psprecomp::Runtime &rt) {
     rt.register_function(0x089C5AD8u, frame_present_fn, "sceDisplayWaitVblankStart");
     rt.register_function(0x089C5AD0u, frame_present_fn, "sceDisplayWaitVblankStartCB");
     rt.register_function(0x089C5AC8u, frame_present_fn, "sceDisplayWaitVblank");
+    // 0x089C5AA8 is the scene manager's per-frame vblank yield (sceDisplayWaitVblankStartMulti
+    // or similar). Unit 14 is poisoned by other HLE overrides so invoke_chained_direct fails;
+    // register an explicit override so lookup_function_override() finds it and the scene
+    // manager's render path runs every frame.
+    rt.register_function(0x089C5AA8u, frame_present_fn, "sceDisplayWaitVblankMulti");
 
 // Explicit HLE for CreateThread / StartThread wrapper addresses
 
@@ -1133,25 +1202,19 @@ void hle_signal_sema(std::uint32_t uid, std::uint32_t signal) {
 }
 
 std::uint32_t hle_create_thread(std::uint32_t entry, std::uint32_t priority, std::uint32_t stack_size) {
-    const std::uint32_t uid = s_next_thread_uid++;
-    ThreadDesc td{entry, uid, 0u, 0u, priority};
-    s_threads[uid] = td;
-    s_thread_entry = entry;
-    std::printf("[HLE] sceKernelCreateThread uid=%u entry=0x%08X priority=%u stack=0x%X\n",
+    // Delegate to PortableKit's kernel so it owns the thread lifecycle.
+    const std::uint32_t gp = s_runtime_ptr ? s_runtime_ptr->cpu().gpr[28] : 0u;
+    const std::int32_t uid = portablekit::kernel().create_thread("d012_thread", entry, priority, stack_size, 0u, gp);
+    std::printf("[HLE] sceKernelCreateThread uid=%d entry=0x%08X priority=%u stack=0x%X\n",
                 uid, entry, priority, stack_size);
-    return uid;
+    return static_cast<std::uint32_t>(uid);
 }
 void hle_start_thread(std::uint32_t uid, std::uint32_t arglen, std::uint32_t argp) {
-    auto it = s_threads.find(uid);
-    if (it != s_threads.end()) {
-        ThreadDesc td = it->second;
-        td.arglen = arglen;
-        td.argp   = argp;
-        s_thread_queue.push_back(td);
-        std::printf("[HLE] sceKernelStartThread uid=%u entry=0x%08X queued\n", uid, td.entry);
-    } else {
-        std::printf("[HLE] sceKernelStartThread uid=%u NOT FOUND\n", uid);
-    }
+    if (!s_runtime_ptr) { std::printf("[HLE] sceKernelStartThread: no runtime\n"); return; }
+    auto &ctx = s_runtime_ptr->cpu();
+    const std::int32_t result = portablekit::kernel().start_thread(ctx, static_cast<portablekit::SceUID>(uid), arglen, argp);
+    ctx.gpr[2] = static_cast<std::uint32_t>(result);
+    std::printf("[HLE] sceKernelStartThread uid=%u result=%d\n", uid, result);
 }
 std::uint32_t hle_create_event_flag() {
     static std::uint32_t s_next_evf = 0x300u;
@@ -1171,7 +1234,7 @@ void hle_run_ctors(psprecomp::Runtime &rt, const psprecomp::Elf32Image &elf) {
             const std::uint32_t fn = rt.memory().load32(base + i * 4u);
             if (fn == 0u || fn == 0xFFFFFFFFu) continue;
             std::printf("[HLE] ctor[%u] = 0x%08X\n", i, fn);
-            auto &ctx = rt.context();
+            auto &ctx = rt.cpu();
             ctx.gpr[29] = 0x09F00000u;
             ctx.gpr[31] = 0x00000001u;
             rt.run(fn, 100'000'000u);
@@ -1185,7 +1248,7 @@ void hle_run_next_thread(psprecomp::Runtime &rt) {
     s_thread_queue.pop_front();
     std::printf("[HLE] Running queued thread entry=0x%08X uid=%u\n", td.entry, td.uid);
 
-    auto &ctx = rt.context();
+    auto &ctx = rt.cpu();
     ctx.gpr[4]  = td.arglen;
     ctx.gpr[5]  = td.argp;
     ctx.gpr[29] = 0x09EF0000u;
@@ -1262,8 +1325,8 @@ void hle_run_cooperative(psprecomp::Runtime &rt) {
         s_current_thread_idx = idx;
 
         // Restore context and run
-        rt.context() = stc.ctx;
-        rt.context().pc = stc.resume_pc;
+        rt.cpu() = stc.ctx;
+        rt.cpu().pc = stc.resume_pc;
         const std::uint32_t run_pc = stc.resume_pc;
         static std::uint64_t s_slice = 0u;
         if ((++s_slice & 0xFFu) == 0u)
@@ -1273,8 +1336,8 @@ void hle_run_cooperative(psprecomp::Runtime &rt) {
 
         const std::string &reason = rt.stop_reason();
         // Save context
-        stc.ctx       = rt.context();
-        stc.resume_pc = rt.context().pc;
+        stc.ctx       = rt.cpu();
+        stc.resume_pc = rt.cpu().pc;
 
         if (reason == "yield") {
             // Thread yielded — context already saved, advance to next
@@ -1358,16 +1421,16 @@ std::uint32_t io_open(const std::string &psp_path, std::uint32_t flags) {
     // embeds the extracted assets actually consumed by startup, so opening
     // the unused container must not reintroduce an ISO/filesystem dependency.
     if (!embedded.data && guest_rel == "package.bin" && !(flags & 2u)) {
-        const char *pkg_path = "C:/Users/javi_/Downloads/Dissidia_012_EUR_FULL_UNDUB/Dissidia_012_EUR_FULL_UNDUB/PSP_GAME/USRDIR/data/PACKAGE.BIN";
-        FILE *fp = std::fopen(pkg_path, "rb");
+        const char *pkg_path = std::getenv("D012_PACKAGE_BIN");
+        FILE *fp = pkg_path ? std::fopen(pkg_path, "rb") : nullptr;
         if (!fp) {
-            std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> PACKAGE.BIN not found at %s\n", psp_path.c_str(), pkg_path);
+            std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> PACKAGE.BIN not found (set D012_PACKAGE_BIN)\n", psp_path.c_str());
             fp = std::tmpfile();
             if (!fp) return static_cast<std::uint32_t>(-2);
         }
         const std::uint32_t fd = s_next_fd++;
         s_fds[fd] = {fp, psp_path};
-        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u serving real PACKAGE.BIN\n", psp_path.c_str(), fd);
+        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u serving PACKAGE.BIN\n", psp_path.c_str(), fd);
         return fd;
     }
     // "ss" (startup screen / Square Enix logo) is inside package.bin which we

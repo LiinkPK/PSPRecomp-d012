@@ -201,6 +201,11 @@ public:
                 if constexpr (DirectEntryId != 0u &&
                               std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t,
                                                   GuestMemory::AotFastView &>) {
+                    if constexpr (DirectTargetPc == 0x0893431Cu) {
+                        std::printf("[RT-DISABLED] about to call unit_9 ctx.pc=0x%08X entry=%u\n",
+                            ctx.pc, static_cast<unsigned>(DirectEntryId));
+                        std::fflush(stdout);
+                    }
                     if constexpr (DirectTargetPc == 0x0899F5A4u || DirectTargetPc == 0x089A01FCu) {
                         std::printf("[CHAIN-DIRECT-AOT] target=0x%08X entry=%u pc_before=0x%08X\n",
                                     DirectTargetPc, static_cast<unsigned>(DirectEntryId), ctx.pc);
@@ -267,6 +272,11 @@ public:
         if constexpr (DirectEntryId != 0u &&
                       std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t,
                                           GuestMemory::AotFastView &>) {
+            if constexpr (DirectTargetPc == 0x0893431Cu) {
+                std::printf("[RT-DIRECT] about to call unit_9 ctx.pc=0x%08X DirectTargetPc=0x%08X entry=%u\n",
+                    ctx.pc, static_cast<unsigned>(DirectTargetPc), static_cast<unsigned>(DirectEntryId));
+                std::fflush(stdout);
+            }
             if (shared_aot_mem != nullptr) {
                 Function(*this, ctx, DirectEntryId, *shared_aot_mem);
             } else {

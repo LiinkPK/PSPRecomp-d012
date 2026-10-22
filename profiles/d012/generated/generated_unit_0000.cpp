@@ -5767,6 +5767,7 @@ L_08804074:
     if (rt.invoke_chained_direct<&recomp_unit_0014_entry, 14u, 306u, 0x089C5F28u>(ctx, &aot_mem) && ctx.pc == 0x08804080u) goto L_08804080;
     return;
 L_08804080:
+    std::printf("[U0] L_08804080 gpr17=0x%08X\n", ctx.gpr[17]); fflush(stdout);
     { const bool branch_taken = ctx.gpr[17] == 0u;
     ctx.gpr[9] = (2206u << 16u);
       if (branch_taken) {
@@ -5845,6 +5846,7 @@ L_088040FC:
     ctx.gpr[8] = (ctx.gpr[16] | ctx.gpr[15]);
     goto L_08804108;
 L_08804108:
+    std::printf("[U0] L_08804108 -> calling CreateThread\n"); fflush(stdout);
     ctx.gpr[17] = (2176u << 16u);
     ctx.gpr[5] = (ctx.gpr[17] + static_cast<std::uint32_t>(16736));
     ctx.gpr[31] = (0x08804118u);
@@ -5887,6 +5889,7 @@ L_08804154:
     ctx.gpr[4] = (ctx.gpr[10] + static_cast<std::uint32_t>(27048));
     goto L_088040C0;
 L_08804160:
+    std::printf("[U0] L_08804160 d012_thread entry ra=0x%08X sp=0x%08X\n", ctx.gpr[31], ctx.gpr[29]); fflush(stdout);
     ctx.gpr[3] = (0u << 16u);
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-1024));
     ctx.gpr[6] = (ctx.gpr[3] + static_cast<std::uint32_t>(0));

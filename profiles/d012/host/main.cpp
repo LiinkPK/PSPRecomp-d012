@@ -92,7 +92,7 @@ int main(int argc, char *argv[]) {
             // input directory is only the BIN staging area.
             // If the resolved dir still has no PSP_GAME, try the known extracted ISO location.
             static const std::filesystem::path kFallbackGameRoot =
-                "C:/Users/javi_/Downloads/Dissidia_012_EUR_FULL_UNDUB/Dissidia_012_EUR_FULL_UNDUB";
+                std::getenv("D012_GAME_ROOT") ? std::getenv("D012_GAME_ROOT") : "";
             if (!std::filesystem::exists(dir / "PSP_GAME") &&
                 std::filesystem::exists(kFallbackGameRoot / "PSP_GAME")) {
                 dir = kFallbackGameRoot;
@@ -126,7 +126,28 @@ int main(int argc, char *argv[]) {
         const std::uint32_t entry     = elf.runtime_entry();
         const std::uint32_t run_entry = entry == 0 ? 0x08804040u : entry;
         std::printf("Entry: 0x%08X  Running from: 0x%08X\n", entry, run_entry);
-        runtime.context().gpr[29] = 0x09F00000u;
+
+        // Set up the PSP thread control block ($k0 / gpr[26]) at the top of the
+        // initial stack, exactly as PortableKit's Kernel::prepare_thread_stack does.
+        // Without this, $k0 = 0 and the game reads from 0x00000054-0x000000F8
+        // (all GUEST-READ32-UNMAPPED → 0), corrupting MPK object construction.
+        {
+            constexpr std::uint32_t kStackTop   = 0x09F00000u;
+            constexpr std::uint32_t kCBSize     = 0x200u;       // 512-byte control block
+            const std::uint32_t     control_blk = kStackTop - kCBSize;
+            // Zero the control block
+            for (std::uint32_t off = 0; off < kCBSize; off += 4u)
+                runtime.memory().store32(control_blk + off, 0u);
+            // Write sentinel values matching Tenkawa (UID=1, stack_bottom, -1 sentinels)
+            runtime.memory().store32(control_blk + 0xC0u, 1u);            // uid
+            runtime.memory().store32(control_blk + 0xC8u, 0x09E00000u);   // stack_bottom
+            runtime.memory().store32(control_blk + 0xF8u, 0xFFFFFFFFu);
+            runtime.memory().store32(control_blk + 0xFCu, 0xFFFFFFFFu);
+            runtime.context().gpr[26] = control_blk;  // $k0
+            runtime.context().gpr[29] = control_blk;  // $sp just below control block
+            std::printf("[MAIN] thread control block at 0x%08X, $k0=gpr[26]=0x%08X\n",
+                        control_blk, control_blk);
+        }
         runtime.run(run_entry, 1'000'000'000u);
         std::printf("Exited: %s\n", runtime.stop_reason().c_str());
         // If the initial entry thread queued other threads (render, loading, audio...),

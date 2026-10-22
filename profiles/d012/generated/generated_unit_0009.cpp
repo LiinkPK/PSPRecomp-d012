@@ -8,6 +8,7 @@
 
 namespace psprecomp {
 void recomp_unit_0009_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &aot_mem) {
+    std::printf("[U9] entry_entry ctx.pc=0x%08X direct_entry_id=%u\n", ctx.pc, static_cast<unsigned>(direct_entry_id)); fflush(stdout);
     (void)direct_entry_id;
     std::uint32_t jump_target = 0u;
     std::uint32_t local_transfers = 0u;
@@ -26274,6 +26275,7 @@ L_08934300:
     ctx.gpr[2] = 0u;
     goto L_0893431C;
 L_0893431C:
+    std::printf("[U9] L_0893431C entry ra=0x%08X\n", ctx.gpr[31]); fflush(stdout);
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[16]);
     ctx.gpr[16] = (2479u << 16u);
