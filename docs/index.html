@@ -144,7 +144,7 @@
         <span>THE SHORTCUT FOR DISSIDIA SPECIFICALLY</span>
       </div>
       <p class="text-xs md:text-sm text-tokyo-text leading-relaxed">
-        <strong class="text-tokyo-accent">Pro Tip:</strong> Once Phase 2 (File I/O) is working, the game will likely run all its initialization code and reach the GE display list submission. At that point, the output is just a memory buffer — you can dump it and compare against <span class="code-tag">PPSSPP</span> frame-by-frame to validate your GE interpreter <em>before you write a single line of Vulkan code</em>!
+        <strong class="text-tokyo-accent">Pro Tip:</strong> PortableKit's Vulkan renderer is already wired up — the moment the game thread gets past the <span class="code-tag">invoke_chained_direct</span> blocker and reaches its first GE display list submission, the window should show output. At that point you can compare the guest framebuffer against <span class="code-tag">PPSSPP</span> frame-by-frame to validate GE commands without touching the renderer at all.
       </p>
     </section>
 
