@@ -48280,13 +48280,7 @@ L_088A0ED8:
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
-L_088A0EEC: // FUN_088A0EEC: audio channel search — stub returns -1 (no channel found, avoids null vtable spin)
-    { static bool once=false; if(!once){once=true; std::printf("[088A0EEC] audio channel search stub -> -1\n"); fflush(stdout);} }
-    ctx.gpr[2] = static_cast<std::uint32_t>(-1);
-    jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
-    if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-    return;
-L_088A0EEC_orig_unused:
+L_088A0EEC:
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[16]);
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(4), ctx.gpr[17]);

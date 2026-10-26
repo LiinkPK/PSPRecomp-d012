@@ -63,7 +63,8 @@ set(D012_GENERATED
     "${D012_PROFILE_DIR}/generated/overlay_menu/generated_unit_0009.cpp"
     "${D012_PROFILE_DIR}/generated/overlay_menu/generated_unit_0010.cpp"
     "${D012_PROFILE_DIR}/generated/overlay_menu/generated_unit_0011.cpp"
-    "${D012_PROFILE_DIR}/generated/overlay_menu/target_registry.cpp"
+    "${D012_PROFILE_DIR}/generated/overlay_menu/generated_unit_extras.cpp"
+    "${D012_PROFILE_DIR}/generated/overlay_menu/generated_registry.cpp"
 )
 
 if(MSVC)

@@ -5889,7 +5889,7 @@ L_08804154:
     ctx.gpr[4] = (ctx.gpr[10] + static_cast<std::uint32_t>(27048));
     goto L_088040C0;
 L_08804160:
-    std::printf("[U0] L_08804160 d012_thread entry ra=0x%08X sp=0x%08X\n", ctx.gpr[31], ctx.gpr[29]); fflush(stdout);
+    std::printf("[U0] L_08804160 d012_thread entry ra=0x%08X sp=0x%08X a0=0x%08X a1(argp)=0x%08X\n", ctx.gpr[31], ctx.gpr[29], ctx.gpr[4], ctx.gpr[5]); fflush(stdout);
     ctx.gpr[3] = (0u << 16u);
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-1024));
     ctx.gpr[6] = (ctx.gpr[3] + static_cast<std::uint32_t>(0));
@@ -5922,6 +5922,7 @@ L_088041A4:
     std::printf("[DBG] L_088041A4 calling 0x0893431C ra=0x%08X sp=0x%08X\n", ctx.gpr[31], ctx.gpr[29]);
     ctx.gpr[31] = (0x088041ACu);
     ctx.gpr[4] = (0u + 0u);
+    ctx.pc = 0x0893431Cu;  // pre-set so unit_9 dispatch table hits the right case
     if (rt.invoke_chained_direct<&recomp_unit_0009_entry, 9u, 2352u, 0x0893431Cu>(ctx, &aot_mem) && ctx.pc == 0x088041ACu) goto L_088041AC;
     std::printf("[DBG] L_088041A4 invoke returned false, ctx.pc=0x%08X\n", ctx.pc);
     return;
@@ -6030,7 +6031,9 @@ L_08804248:
     // Call FUN_08933398 — it contains the internal render loop that drives
     // sceDisplaySetFrameBuf each frame. L_08934300's frame-wait SYSCALL is now
     // a no-op, so the loop runs naturally without breaking out.
+    ctx.pc = 0x08933398u;
     if (rt.invoke_chained_direct<&recomp_unit_0009_entry, 9u, 2109u, 0x08933398u>(ctx, &aot_mem) && ctx.pc == 0x08804254u) goto L_08804254;
+    std::printf("[DBG] render invoke failed ctx.pc=0x%08X\n", ctx.pc); fflush(stdout);
     return;
 L_08804254:
     ctx.gpr[3] = (0u << 16u);

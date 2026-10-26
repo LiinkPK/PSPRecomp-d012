@@ -337,3 +337,20 @@ general_archive/field/ZQ/field_lang.bin â† not yet loaded
 - Added `d012::set_runtime(rt)` called from `patch_loaded_image` to give `d012_profile.cpp` access to the runtime for kernel calls.
 
 **Current state:** Build is running. The game reached `sceKernelCreateThread uid=1 entry=0x08804160` before this fix — the thread was being created but never started. With this fix PortableKit's kernel owns the thread and should schedule it. Window and rendering not yet verified.
+
+### Session 14 - init sequence traced, interpreter crash at 0x08BEE950 (26/10/2026)
+
+**What was done this session:**
+
+- Init sequence fully traced end-to-end. All 7 XUNIT init entries complete via `invoke_isolated_aot` with register save/restore (gpr[29]/gpr[31]/gpr[16]).
+- Scheduler dispatches after init. Archive loading (`general_archive/main/main.bin`) proceeds.
+- Game thread reaches the render loop.
+- `L_08933458` entry diagnostic confirmed: `ra=0x089333F8` (valid), the `0xFFFFFFFF` ra crash from previous sessions is resolved.
+- `[SCHED-TICK]` fires with `gpr4=0x08C10CFC gpr5=0x00000001 ra=0x0886F36C` — calls unit_14 (`sceKernelStopModule` import stub at `0x089C57E0`).
+- PortableKit's kernel HLE for `sceKernelStopModule` reads the module's registered stop-function pointer (`0x08BA77D0`) and calls it.
+- `0x08BA77D0` is in the un-recompiled range (units 27–31 do not exist as generated .cpp files). The interpreter starts there and runs ~72,801 instructions across the data section.
+- Interpreter eventually reaches `0x08BEE950` which contains `0x0000FFFF` (uninitialized memory / data, not code) — crash: `Unsupported Allegrex instruction 0x0000FFFF`.
+
+**Current blocker:** PortableKit's `sceKernelStopModule` HLE calls the module stop-function pointer `0x08BA77D0` (un-recompiled, data section). Interpreter runs 72k instructions through data until it hits `0x0000FFFF` at `0x08BEE950`. Attempted NID override (`ModuleMgrForUser / 0xD1FF982A`) via `rt.register_hle` after `force_import_stub` — import stub address is already bound to PortableKit's internal HLE which calls the stop function directly; NID override does not intercept the internal call.
+
+**Next step:** Override the stop function call path inside PortableKit's kernel HLE, or register `0x08BA77D0` directly as a no-op HLE stub so the interpreter never runs there.

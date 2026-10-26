@@ -43483,8 +43483,17 @@ L_088FC904:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_088FC938:
+    { static FILE *tlog=nullptr; if(!tlog){tlog=fopen("C:/Windows/Temp/d012_trace.txt","a");} if(tlog){fprintf(tlog,"[088FC938] entry a0=0x%08X a1=0x%08X ra=0x%08X\n",ctx.gpr[4],ctx.gpr[5],ctx.gpr[31]);fflush(tlog);} }
+    std::printf("[088FC938] entry a0=0x%08X a1=0x%08X ra=0x%08X\n",ctx.gpr[4],ctx.gpr[5],ctx.gpr[31]); fflush(stdout);
     if (ctx.gpr[4] < 0x08000000u) { // guard: a0 is not a valid PSP pointer (e.g. a UID); skip init
-        { static bool once=false; if(!once){once=true; std::printf("[088FC938] invalid a0=0x%08X skipped\n",ctx.gpr[4]); fflush(stdout);} }
+        std::printf("[088FC938] invalid a0=0x%08X skipped\n",ctx.gpr[4]); fflush(stdout);
+        ctx.gpr[2] = 0u;
+        jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
+        if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
+        return;
+    }
+    if (ctx.gpr[5] < 0x08000000u) { // guard: a1 is a UID not a PSP pointer
+        std::printf("[088FC938] invalid a1=0x%08X skipped (would become a0)\n",ctx.gpr[5]); fflush(stdout);
         ctx.gpr[2] = 0u;
         jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
         if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
@@ -43539,9 +43548,20 @@ L_088FC984:
 L_088FC98C:
     ctx.gpr[31] = (0x088FC994u);
     // nop
+    if (ctx.gpr[4] < 0x08000000u) { // a0 is a UID not a PSP pointer; skip lookup, return null
+        std::printf("[088FC98C] skipping 08869AB4 call: a0=0x%08X is a UID\n", ctx.gpr[4]); fflush(stdout);
+        ctx.gpr[2] = 0u;
+        goto L_088FC994;
+    }
     if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 876u, 0x08869AB4u>(ctx, &aot_mem) && ctx.pc == 0x088FC994u) goto L_088FC994;
 L_088FC994:
     ctx.gpr[4] = (ctx.gpr[2] | 0u);
+    // Guard: lookup may return a kernel UID (e.g. callback UID 0x103) rather than a PSP pointer.
+    // Using a UID as a pointer at L_088FC9A8 (+4) causes OOB crash at 0x107.
+    if (ctx.gpr[4] != 0u && ctx.gpr[4] < 0x08000000u) {
+        std::printf("[088FC994] lookup returned UID/non-ptr v0=0x%08X, treating as null\n", ctx.gpr[4]); fflush(stdout);
+        ctx.gpr[4] = 0u;
+    }
     { const bool branch_taken = ctx.gpr[4] != 0u;
     ctx.gpr[5] = (ctx.gpr[4] | 0u);
       if (branch_taken) {

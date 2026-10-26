@@ -391,6 +391,13 @@ void set_runtime(psprecomp::Runtime &rt) {
 void register_hle(psprecomp::Runtime &rt) {
     s_runtime_ptr = &rt;
     psprecomp::g_runtime_starvation_interval_fast = 0u;
+    // Sentinel return address — used as ra when there is no real caller.
+    // Must be a valid PSP address so it can be stored in direct_functions_.
+    rt.register_function(0x08800000u, [](psprecomp::Runtime &r, psprecomp::AllegrexContext &ctx) {
+        std::printf("[HLE] sentinel return reached ra=0x%08X pc=0x%08X\n", ctx.gpr[31], ctx.pc);
+        std::fflush(stdout);
+        r.stop("sentinel");
+    }, "hle_sentinel_08800000");
     // Install frame-complete hook: when a function returns via ra=0 (null-PC)
     // while inside the render thread (after FUN_08933398 init), redirect to
     // L_089333E0 to re-enter the per-frame render loop.
@@ -591,7 +598,7 @@ void register_hle(psprecomp::Runtime &rt) {
         if (++s_xdt <= 5u) std::printf("[HLE] sceKernelExitDeleteThread(%d) -> nop-return ra=0x%08X #%u\n", ctx.gpr[4], ctx.gpr[31], s_xdt);
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "recomp_unit_exitdeletethread");
+    }, "hle_sceKernelExitDeleteThread");
 
     rt.register_function(0x089C6030u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
         // Same treatment.
@@ -599,7 +606,7 @@ void register_hle(psprecomp::Runtime &rt) {
         if (++s_xt <= 5u) std::printf("[HLE] sceKernelExitThread(%d) -> nop-return ra=0x%08X #%u\n", ctx.gpr[4], ctx.gpr[31], s_xt);
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "recomp_unit_exitthread");
+    }, "hle_sceKernelExitThread");
 
     // ThreadManForUser stubs
 
@@ -894,7 +901,7 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "recomp_unit_0014");
+    }, "hle_unit14");
 
     // sceKernelGetSystemTimeLow, sceDisplayWaitVblankStartCB implemented
     // directly in generated_unit_0014.cpp labels to keep unit 14 AOT-chainable.
@@ -912,7 +919,7 @@ void register_hle(psprecomp::Runtime &rt) {
         if (++s_n <= 3u) std::printf("[sceGuStart] type=%u list=0x%08X\n", ctx.gpr[4], list_va);
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "recomp_unit_0014");
+    }, "hle_unit14");
 
     // sceGuFinish()  [0x089C5770, 0x089C5778]
     // Writes END command and directly executes the accumulated GE list.
@@ -938,8 +945,8 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     };
-    rt.register_function(0x089C5770u, gu_finish_fn, "recomp_unit_0014");
-    rt.register_function(0x089C5778u, gu_finish_fn, "recomp_unit_0014");
+    rt.register_function(0x089C5770u, gu_finish_fn, "hle_unit14");
+    rt.register_function(0x089C5778u, gu_finish_fn, "hle_unit14");
 
     // sceGuClear(flags)  [0x089C5630]
     rt.register_function(0x089C5630u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -950,7 +957,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0xD2000000u); // CLEARMODE off
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "recomp_unit_0014");
+    }, "hle_unit14");
 
     // sceGuClearColor(color)  [0x089C5650]
     rt.register_function(0x089C5650u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -960,7 +967,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0x03000000u | ((ctx.gpr[4] >> 24) & 0xFFu));
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "recomp_unit_0014");
+    }, "hle_unit14");
 
     // sceGuClearDepth(depth)  [0x089C5688]
     rt.register_function(0x089C5688u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -969,7 +976,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0x55000000u | (ctx.gpr[4] & 0xFFFFu));
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "recomp_unit_0014");
+    }, "hle_unit14");
 
     // sceGuDrawArray(prim, vtype, count, indices, vertices)  [0x089C56C0]
     // a0=prim, a1=vtype, a2=count, a3=indices_ptr, [sp+16]=vertices_ptr
@@ -992,7 +999,7 @@ void register_hle(psprecomp::Runtime &rt) {
         gu_emit(rt2, 0x04000000u | ((prim & 0x7u) << 16) | (count & 0xFFFFu)); // PRIM
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
-    }, "recomp_unit_0014");
+    }, "hle_unit14");
 
     // Unknown sceGu stubs — log and NOP-return  [0x089C56E0, 5700, 5718, 5730]
     auto gu_nop_fn = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
@@ -1002,10 +1009,10 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     };
-    rt.register_function(0x089C56E0u, gu_nop_fn, "recomp_unit_0014");
-    rt.register_function(0x089C5700u, gu_nop_fn, "recomp_unit_0014");
-    rt.register_function(0x089C5718u, gu_nop_fn, "recomp_unit_0014");
-    rt.register_function(0x089C5730u, gu_nop_fn, "recomp_unit_0014");
+    rt.register_function(0x089C56E0u, gu_nop_fn, "hle_unit14");
+    rt.register_function(0x089C5700u, gu_nop_fn, "hle_unit14");
+    rt.register_function(0x089C5718u, gu_nop_fn, "hle_unit14");
+    rt.register_function(0x089C5730u, gu_nop_fn, "hle_unit14");
 
     // Stub uncompiled functions in the 0x089DDxxx gap (called from FUN_0887801C init chain)
     // 089DD4D0: one-time struct initializer for DAT_09ae7070 — stub returns 0, caller guards with flag
@@ -1016,7 +1023,7 @@ void register_hle(psprecomp::Runtime &rt) {
             std::fflush(stdout); }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "recomp_unit_0015");
+    }, "hle_unit15");
     rt.register_function(0x089E0B0Cu, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
         static bool s_once = false;
         if (!s_once) { s_once = true;
@@ -1024,7 +1031,7 @@ void register_hle(psprecomp::Runtime &rt) {
             std::fflush(stdout); }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "recomp_unit_0015");
+    }, "hle_unit15");
 
     // FUN_08992F6C: linked-list push. *param_1 = DAT_09af6780; DAT_09af6780 = param_1.
     // Compiled in unit_0012 but invoke_chained_call from unit_0015 can't cross units — provide HLE.
@@ -1038,7 +1045,7 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "recomp_unit_0012");
+    }, "recomp_unit_0012_hle_init_08992F6C");
 
     // FUN_0883DFA8: INIT function — calls FUN_08882950, FUN_0883F014, FUN_08992F6C.
     // Cross-unit invoke_chained_call chain breaks; HLE does equivalent work directly.
@@ -1063,7 +1070,7 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
-    }, "recomp_unit_0002");
+    }, "recomp_unit_0002_hle_init_0883DFA8");
 
     // FUN_08874508: init — calls FUN_08993560, sets floats in 09b48xxx, calls FUN_08992F6C
     rt.register_function(0x08874508u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
@@ -1154,6 +1161,17 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31];
     }, "recomp_unit_0005");
+
+    // sceKernelStopModule (NID 0xD1FF982A): PortableKit's HLE calls the module stop
+    // function pointer which points into the data section (0x08BA77D0), causing the
+    // interpreter to run 72k "instructions" through data until it hits 0x0000FFFF.
+    // Override to just return 0 (module stop succeeded, no callback needed).
+    rt.register_hle("ModuleMgrForUser", 0xD1FF982Au,
+        [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+            std::printf("[HLE] sceKernelStopModule nid=0xD1FF982A module=0x%08X -> 0\n", ctx.gpr[4]);
+            std::fflush(stdout);
+            ctx.gpr[2] = 0u;
+        });
 }
 
 static std::uint32_t s_last_addr = 0u;

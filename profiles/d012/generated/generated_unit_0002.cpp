@@ -12,6 +12,11 @@
 
 extern "C" const char* d012_get_game_root();
 
+// Shared bump allocator used by heap stubs at L_0885C538 and L_0885C6CC.
+// Range 0x09C00000–0x09D00000 (1 MB) — above profile's arena (0x09C00000 limit)
+// and below the thread control block area (0x09E00000–0x09F00000).
+static std::uint32_t s_gen_heap_bump = 0x09C00000u;
+
 // Async-open stub: maps path string hash → sequential handle
 static int s_async_seq = 1;
 struct AsyncHandle { char path[128]; int handle; };
@@ -44279,6 +44284,20 @@ L_0885C508:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_0885C538:
+    // HEAP-STUB: bypass PSP heap alloc — bump allocator in PSP address space
+    {
+        std::uint32_t req_size = ctx.gpr[5];
+        std::uint32_t alignment = (ctx.gpr[6] > 0u) ? ctx.gpr[6] : 64u;
+        if (alignment < 4u) alignment = 4u;
+        s_gen_heap_bump = (s_gen_heap_bump + alignment - 1u) & ~(alignment - 1u);
+        std::uint32_t result = s_gen_heap_bump;
+        s_gen_heap_bump += (req_size < 4u ? 4u : req_size);
+        { static unsigned s_log=0; if(s_log<8){s_log++; std::printf("[HEAP-38] alloc size=%u align=%u -> 0x%08X ra=0x%08X\n", req_size,alignment,result,ctx.gpr[31]); fflush(stdout);} }
+        ctx.gpr[2] = result;
+        jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
+        if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
+        return;
+    }
     { const bool branch_taken = static_cast<std::int32_t>(ctx.gpr[6]) > 0;
     ctx.gpr[7] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(12)));
       if (branch_taken) {
@@ -44429,9 +44448,16 @@ L_0885C6BC:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_0885C6CC:
-    if (ctx.gpr[4] < 0x08000000u) {
-        { static bool s_once=false; if(!s_once){s_once=true; std::printf("[0885C6CC] null guard: a0=0x%08X ra=0x%08X\n",ctx.gpr[4],ctx.gpr[31]); fflush(stdout);} }
-        ctx.gpr[2] = 0u;
+    // HEAP-STUB: bypass PSP heap alloc — bump allocator in PSP address space
+    {
+        std::uint32_t req_size = ctx.gpr[5];
+        std::uint32_t alignment = (ctx.gpr[6] > 0u) ? ctx.gpr[6] : 64u;
+        if (alignment < 4u) alignment = 4u;
+        s_gen_heap_bump = (s_gen_heap_bump + alignment - 1u) & ~(alignment - 1u);
+        std::uint32_t result = s_gen_heap_bump;
+        s_gen_heap_bump += (req_size < 4u ? 4u : req_size);
+        { static unsigned s_log=0; if(s_log<8){s_log++; std::printf("[HEAP-CC] alloc size=%u align=%u -> 0x%08X ra=0x%08X\n", req_size,alignment,result,ctx.gpr[31]); fflush(stdout);} }
+        ctx.gpr[2] = result;
         jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
         if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
         return;
@@ -52425,6 +52451,8 @@ L_088627C0:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_088627E4:
+    { static unsigned u2_f4_count = 0; if (u2_f4_count++ < 8) std::printf("[U2-F4] 088627E4 obj=0x%08X type_str=0x%08X ra=0x%08X\n", ctx.gpr[4], ctx.gpr[5], ctx.gpr[31]); fflush(stdout); }
+    if (ctx.gpr[4] == 0u) { std::printf("[U2-F4] NULL obj at 088627E4, type=0x%08X ra=0x%08X -- skipping\n", ctx.gpr[5], ctx.gpr[31]); fflush(stdout); ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31]; return; }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[16]);
     ctx.gpr[16] = (ctx.gpr[4] | 0u);
@@ -52434,6 +52462,8 @@ L_088627E4:
     ctx.gpr[4] = (ctx.gpr[5] | 0u);
     goto L_0886362C;
 L_08862800:
+    { std::printf("[U2-F4] L_08862800 gpr2=0x%08X gpr16=0x%08X ra=0x%08X\n", ctx.gpr[2], ctx.gpr[16], ctx.gpr[31]); fflush(stdout); }
+    if (ctx.gpr[2] == 0u) { std::printf("[U2-F4] NULL task from L_0886362C, skipping vtbl dispatch\n"); fflush(stdout); ctx.gpr[16] = (aot_mem.aot_load32(ctx.gpr[29]+0)); ctx.gpr[17] = (aot_mem.aot_load32(ctx.gpr[29]+4)); ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29]+8)); ctx.gpr[29] += 16u; ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31]; return; }
     aot_mem.aot_store32(ctx.gpr[16] + static_cast<std::uint32_t>(4), ctx.gpr[2]);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[2] + static_cast<std::uint32_t>(340)));
     ctx.gpr[4] = (ctx.gpr[4] + static_cast<std::uint32_t>(8));

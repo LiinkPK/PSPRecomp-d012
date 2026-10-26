@@ -141,23 +141,21 @@ int main(int argc, char *argv[]) {
             // Write sentinel values matching Tenkawa (UID=1, stack_bottom, -1 sentinels)
             runtime.memory().store32(control_blk + 0xC0u, 1u);            // uid
             runtime.memory().store32(control_blk + 0xC8u, 0x09E00000u);   // stack_bottom
-            runtime.memory().store32(control_blk + 0xF8u, 0xFFFFFFFFu);
-            runtime.memory().store32(control_blk + 0xFCu, 0xFFFFFFFFu);
+            runtime.memory().store32(control_blk + 0xF8u, 0x08800000u);
+            runtime.memory().store32(control_blk + 0xFCu, 0x08800000u);
             runtime.context().gpr[26] = control_blk;  // $k0
             runtime.context().gpr[29] = control_blk;  // $sp just below control block
             std::printf("[MAIN] thread control block at 0x%08X, $k0=gpr[26]=0x%08X\n",
                         control_blk, control_blk);
         }
-        runtime.run(run_entry, 1'000'000'000u);
-        std::printf("Exited: %s\n", runtime.stop_reason().c_str());
-        // If the initial entry thread queued other threads (render, loading, audio...),
-        // run them all cooperatively — each thread gets time slices and yields at GE
-        // sync points so loading threads can populate vertex/texture data before the
-        // render thread draws. This is exactly how PortableKit's Kernel works.
-        if (d012::hle_has_pending_threads()) {
-            std::printf("[MAIN] entering cooperative scheduler\n");
-            d012::hle_run_cooperative(runtime);
-        }
+        // Bootstrap thread exits via sentinel; PortableKit has queued the game
+        // thread (d012_thread) at 0x08804160. Run it directly.
+        runtime.run(run_entry, 2'000'000'000u);
+        std::printf("Exited: %s  pc=0x%08X\n", runtime.stop_reason().c_str(), runtime.cpu().pc);
+        std::printf("[MAIN] launching game thread at 0x08804160\n");
+        std::fflush(stdout);
+        runtime.run(0x08804160u, 2'000'000'000u);
+        std::printf("Game thread exited: %s  pc=0x%08X\n", runtime.stop_reason().c_str(), runtime.cpu().pc);
         std::printf("All threads done\n");
     } catch (const std::exception &e) {
         std::fprintf(stderr, "Exception: %s\n", e.what());

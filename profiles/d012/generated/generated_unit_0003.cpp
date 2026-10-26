@@ -13625,7 +13625,17 @@ L_08869A7C:
       goto L_08869A84;
     }
 L_08869A84:
+    if (ctx.gpr[4] < 0x08000000u) { // guard: a0 not a valid PSP pointer at array lookup
+        std::fprintf(stderr, "[08869A84] invalid a0=0x%08X returning null\n", ctx.gpr[4]); std::fflush(stderr);
+        ctx.gpr[2] = 0u; jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
+        if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; } return;
+    }
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(0)));
+    if (ctx.gpr[4] < 0x08000000u) { // guard: dereferenced pointer is a UID/null
+        std::fprintf(stderr, "[08869A84] deref=0x%08X is not a pointer, returning null\n", ctx.gpr[4]); std::fflush(stderr);
+        ctx.gpr[2] = 0u; jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
+        if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; } return;
+    }
     ctx.gpr[6] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(8)));
     ctx.gpr[6] = (static_cast<std::int32_t>(ctx.gpr[5]) < static_cast<std::int32_t>(ctx.gpr[6]) ? 1u : 0u);
     { const bool branch_taken = ctx.gpr[6] != 0u;
@@ -13656,9 +13666,7 @@ L_08869AAC:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08869AB4:
-    // The recovered startup path can pass a kernel/UID value here instead of
-    // a PSP pointer. Preserve the guest's null-result behavior rather than
-    // dereferencing below PSP RAM and aborting the native process.
+    // Guard: a0 must be a valid PSP RAM pointer (UIDs and null rejected).
     if (ctx.gpr[4] < 0x08000000u) {
         ctx.gpr[2] = 0u;
         jump_target = ctx.gpr[31];
@@ -13678,10 +13686,8 @@ L_08869AB4:
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(20), ctx.gpr[31]);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[17] + static_cast<std::uint32_t>(0)));
     if (ctx.gpr[4] < 0x08000000u) {
-        std::printf("[08869AB4] invalid object field=0x%08X\n", ctx.gpr[4]);
-        std::fflush(stdout);
-    }
-    if (ctx.gpr[4] < 0x08000000u) {
+        std::fprintf(stderr, "[08869AB4] field=0x%08X is a UID/null, returning null\n", ctx.gpr[4]);
+        std::fflush(stderr);
         ctx.gpr[2] = 0u;
         jump_target = ctx.gpr[31];
         ctx.pc = jump_target;
@@ -24664,13 +24670,9 @@ L_0886F338:
     ctx.gpr[4] = (2205u << 16u);
     ctx.gpr[4] = (aot_mem.aot_load8(ctx.gpr[4] + static_cast<std::uint32_t>(24351)));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[31]);
-    { const bool branch_taken = ctx.gpr[4] == 0u;
-    // nop
-      if (branch_taken) {
-          goto L_0886F358;
-      }
-      goto L_0886F350;
-    }
+    // ARCH-SYNTH: bypass scheduler-busy flag — single-threaded recomp has no
+    // separate thread to clear this flag, so we always proceed to tick.
+    { (void)(ctx.gpr[4] == 0u); goto L_0886F358; }
 L_0886F350:
     { const bool branch_taken = 0u == 0u;
     // nop
@@ -24685,6 +24687,7 @@ L_0886F358:
     ctx.gpr[5] = (2205u << 16u);
     ctx.gpr[31] = (0x0886F36Cu);
     ctx.gpr[5] = (aot_mem.aot_load32(ctx.gpr[5] + static_cast<std::uint32_t>(24504)));
+    { static unsigned s_sched_tick=0; if(s_sched_tick++<8){std::printf("[SCHED-TICK] gpr4=0x%08X gpr5=0x%08X ra=0x%08X\n",ctx.gpr[4],ctx.gpr[5],ctx.gpr[31]);std::fflush(stdout);} }
     goto L_0886EF94;
 L_0886F36C:
     ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
@@ -37877,6 +37880,7 @@ L_088769A8:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_088769CC:
+    { static unsigned u3_init_count = 0; if (u3_init_count++ < 3) std::printf("[U3-INIT] FUN_088769CC s16=0x%08X s17=0x%08X s18=0x%08X s19=0x%08X s20=0x%08X s21=0x%08X s22=0x%08X s23=0x%08X s30=0x%08X\n", ctx.gpr[16],ctx.gpr[17],ctx.gpr[18],ctx.gpr[19],ctx.gpr[20],ctx.gpr[21],ctx.gpr[22],ctx.gpr[23],ctx.gpr[30]); fflush(stdout); }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-416));
     ctx.gpr[4] = (2241u << 16u);
     ctx.gpr[4] = (ctx.gpr[4] + static_cast<std::uint32_t>(14996));
@@ -38197,6 +38201,7 @@ L_08876E90:
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 2080u, 0x08992F6Cu>(ctx, &aot_mem) && ctx.pc == 0x08876E9Cu) goto L_08876E9C;
     return;
 L_08876E9C:
+    { std::printf("[U3-INIT] L_08876E9C storing gpr16=0x%08X to 0x089D85BC\n", ctx.gpr[16]); fflush(stdout); }
     ctx.gpr[4] = (2206u << 16u);
     aot_mem.aot_store32(ctx.gpr[4] + static_cast<std::uint32_t>(-31300), ctx.gpr[16]);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[17] + static_cast<std::uint32_t>(24064)));
@@ -38753,6 +38758,9 @@ L_08877330:
     return;
 L_0887733C:
     ctx.gpr[4] = (2206u << 16u);
+    // PATCH: gpr[20] is 0 at this call site (FUN_088769CC first invocation);
+    // 0x089985E8 must hold the real object pointer for L_08933A18 to work.
+    if (ctx.gpr[20] == 0u) { ctx.gpr[20] = 0x08C15F00u; }
     aot_mem.aot_store32(ctx.gpr[4] + static_cast<std::uint32_t>(-31256), ctx.gpr[20]);
     ctx.gpr[6] = (2235u << 16u);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[6] + static_cast<std::uint32_t>(-5192)));
@@ -53874,16 +53882,7 @@ L_08882250:
           // FUN_08893FF4 calls FUN_0889381C(rman)→rman+1808+32, then FUN_0886D2C4 to find
           // an available render buffer, and stores it to rman+116.
           // Args: a4=rman, a5=0, a6=(2229<<16)+14384, a7=0, t0=0
-          if (aot_mem.aot_load32(rman_ptr + 116u) == 0u
-              && aot_mem.aot_load32(rman_ptr + 1808u) != 0u) {
-              ctx.gpr[4] = rman_ptr; ctx.gpr[5] = 0u;
-              ctx.gpr[6] = (2229u<<16u) + 14384u; ctx.gpr[7] = 0u;
-              ctx.gpr[8] = 0u; // t0=a3&0xFF=0
-              ctx.gpr[31] = 0x08882250u; ctx.pc = 0x08893FF4u;
-              if (s_arch_frame <= 3u) { std::printf("[ARCH-SYNTH#%u] calling FUN_08893FF4(rman=0x%08X) rman+1808=0x%08X\n", s_arch_frame, rman_ptr, aot_mem.aot_load32(rman_ptr+1808u)); std::fflush(stdout); }
-              rt.invoke_chained_direct<&recomp_unit_0004_entry, 4u, 2803u, 0x08893FF4u>(ctx, &aot_mem);
-              if (s_arch_frame <= 3u) { std::printf("[ARCH-SYNTH#%u] after FUN_08893FF4, rman+116=0x%08X\n", s_arch_frame, aot_mem.aot_load32(rman_ptr+116u)); std::fflush(stdout); }
-          }
+          (void)s_arch_frame; // FUN_08893FF4 call removed — corrupts stack, returns rman+116=0
           ctx.gpr[4]=saved_a0; ctx.gpr[5]=saved_a1; ctx.gpr[6]=saved_a2;
           ctx.gpr[7]=saved_a3; ctx.gpr[31]=saved_ra; ctx.pc=saved_pc;
           ctx.gpr[16]=saved_s0; ctx.gpr[17]=saved_s1; ctx.gpr[18]=saved_s2;
@@ -53913,6 +53912,13 @@ L_08882250:
               }
           }
           std::fflush(stdout);
+      }
+    }
+    { const std::uint32_t task_list = aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(8192));
+      if (task_list == 0u) { // no tasks queued yet — skip dispatch to avoid null-deref
+          ctx.pc = ctx.gpr[31]; local_pc = ctx.gpr[31];
+          if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
+          return;
       }
     }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));

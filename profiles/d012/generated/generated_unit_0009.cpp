@@ -24490,8 +24490,9 @@ L_08933398:
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(4), ctx.gpr[31]);
     ctx.gpr[31] = (0x089333ACu);
     // nop
+    ctx.pc = 0x08993244u;  // force ctx.pc before invoke_chained_direct (LTCG may not propagate template constant)
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 2113u, 0x08993244u>(ctx, &aot_mem) && ctx.pc == 0x089333ACu) goto L_089333AC;
-    printf("[DBG] L_08933398 entered, sp=0x%08X ra=0x%08X\n", ctx.gpr[29], ctx.gpr[31]); fflush(stdout);
+    printf("[DBG] render invoke failed (unit_12) ctx.pc=0x%08X\n", ctx.pc); fflush(stdout);
     return;
 L_089333AC:
     ctx.gpr[4] = (2205u << 16u);
@@ -24516,8 +24517,19 @@ L_089333CC:
 L_089333D8:
     ctx.gpr[31] = (0x089333E0u);
     // nop
-    if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 3562u, 0x088769CCu>(ctx, &aot_mem) && ctx.pc == 0x089333E0u) goto L_089333E0;
-    return;
+    // FUN_088769CC yields via the cooperative scheduler before completing its
+    // global-object stores; all values are pre-initialised in patch_d012_image,
+    // so we ignore the yield and unconditionally continue to L_089333E0.
+    { static bool s_reg_once=false; if(!s_reg_once){s_reg_once=true;
+      std::printf("[769CC-REGS] s16=0x%08X s17=0x%08X s18=0x%08X s19=0x%08X s20=0x%08X s21=0x%08X s22=0x%08X s23=0x%08X s30=0x%08X\n",
+        ctx.gpr[16],ctx.gpr[17],ctx.gpr[18],ctx.gpr[19],ctx.gpr[20],ctx.gpr[21],ctx.gpr[22],ctx.gpr[23],ctx.gpr[30]);
+      std::fflush(stdout); } }
+    rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 3562u, 0x088769CCu>(ctx, &aot_mem);
+    { static bool s_yield_once=false; if(!s_yield_once){s_yield_once=true;
+      std::printf("[769CC-YIELD] ctx.pc=0x%08X after invoke\n", ctx.pc); std::fflush(stdout); } }
+    rt.clear_chain_invalidation();
+    ctx.pc = 0x089333E0u;
+    goto L_089333E0;
 L_089333E0:
     ctx.gpr[4] = (2206u << 16u);
     ctx.gpr[16] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(-31300)));
@@ -24546,10 +24558,9 @@ L_089333F8:
     }
 L_08933400:
     { const bool branch_taken = 0u == 0u;
-    // nop
-      if (branch_taken) {
-          goto L_089333F0;
-      }
+    // nop — PSP: unconditional loop waiting for scheduler yield; no threads, skip.
+      { static unsigned s_spin=0; if(s_spin++<2){std::printf("[SPIN-BREAK] breaking scheduler wait loop at L_08933400\n");fflush(stdout);} }
+      (void)branch_taken;
       goto L_08933408;
     }
 L_08933408:
@@ -24574,6 +24585,7 @@ L_08933424:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08933458:
+    { static unsigned s_e=0; if(s_e++<4) { std::printf("[08933458-ENTRY] ra=0x%08X sp=0x%08X\n",ctx.gpr[31],ctx.gpr[29]); std::fflush(stdout); } }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     ctx.gpr[4] = (2205u << 16u);
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[31]);
@@ -24586,6 +24598,7 @@ L_0893346C:
     ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
     jump_target = ctx.gpr[31];
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(16));
+    { static unsigned s_346C=0; if(s_346C++<8){std::printf("[346C] returning to ra=0x%08X sp=0x%08X\n",jump_target,ctx.gpr[29]);fflush(stdout);} }
     ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
@@ -25387,15 +25400,20 @@ L_08933A18:
     ctx.gpr[16] = (2206u << 16u);
     ctx.gpr[31] = (0x08933A24u);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[16] + static_cast<std::uint32_t>(-31256)));
+    // PATCH: 0x089985E8 may be null (FUN_088769CC stores gpr[20]=0 there);
+    // supply our stub object so the store8/store32 below have a valid target.
+    if (ctx.gpr[4] == 0u) { ctx.gpr[4] = 0x08C15F00u; aot_mem.aot_store32(0x089985E8u, ctx.gpr[4]); }
     goto L_08933BF0;
 L_08933A24:
     ctx.gpr[31] = (0x08933A2Cu);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[16] + static_cast<std::uint32_t>(-31256)));
+    // PATCH: same guard as L_08933A18 above.
+    if (ctx.gpr[4] == 0u) { ctx.gpr[4] = 0x08C15F00u; aot_mem.aot_store32(0x089985E8u, ctx.gpr[4]); }
     goto L_08933C00;
 L_08933A2C:
     ctx.gpr[16] = (2206u << 16u);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[16] + static_cast<std::uint32_t>(2496)));
-    { static bool s_once=false; if(!s_once){s_once=true; std::printf("[08933A2C] fn_ptr=0x%08X gpr18=0x%08X words=%08X,%08X,%08X,%08X\n",ctx.gpr[4],ctx.gpr[18], aot_mem.aot_load32(ctx.gpr[4]), aot_mem.aot_load32(ctx.gpr[4]+4u), aot_mem.aot_load32(ctx.gpr[4]+8u), aot_mem.aot_load32(ctx.gpr[4]+12u)); fflush(stdout);} }
+    { static bool s_once=false; if(!s_once){s_once=true; std::printf("[08933A2C] fn_ptr=0x%08X gpr18=0x%08X\n",ctx.gpr[4],ctx.gpr[18]); fflush(stdout);} }
     ctx.gpr[31] = (0x08933A3Cu);
     ctx.gpr[5] = (0u | 1u);
     if (ctx.gpr[4] != 0u) {

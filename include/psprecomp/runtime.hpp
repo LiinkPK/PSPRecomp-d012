@@ -134,6 +134,11 @@ public:
     // the native stack.  PSPRECOMP_NO_CHAIN=1 disables it for A/B checks.
     [[nodiscard]] bool invoke_chained_call(AllegrexContext &ctx,
                                            GuestMemory::AotFastView *shared_aot_mem = nullptr);
+    // Clear the chain-invalidation flag set by a yielded sub-call, allowing the
+    // caller to continue as if no context switch occurred.  Use only when the
+    // caller has already handled the consequences of the yield (e.g. all
+    // globals were pre-initialised and the call result is not needed).
+    void clear_chain_invalidation() { chain_context_invalidated_ = false; }
     // Fast path for compile-time-known cross-unit targets.  Automatic AOT knows
     // the 16 KiB unit index and can avoid the large guest-PC dispatch table.
     // Units containing an import/HLE/host override fall back to the exact
@@ -167,6 +172,12 @@ public:
             UnitIndex >= kGeneratedUnitFastCapacity ||
             !generated_unit_layout_valid_) {
 #endif
+            if constexpr (UnitIndex == 9u && DirectTargetPc == 0x0893431Cu) {
+                std::printf("[RT-FALLBACK] observers=%d layout=%d ctx.pc=0x%08X -> setting 0x0893431C\n",
+                    static_cast<int>(g_runtime_chain_observers_active),
+                    static_cast<int>(generated_unit_layout_valid_), ctx.pc);
+                std::fflush(stdout);
+            }
             if constexpr (DirectTargetPc != 0u) ctx.pc = DirectTargetPc;
             return invoke_chained_unit(ctx, UnitIndex, shared_aot_mem);
         }
@@ -261,9 +272,13 @@ public:
             ctx.pc = DirectTargetPc;
             return invoke_chained_call(ctx, shared_aot_mem);
         }
-        if constexpr (DirectTargetPc != 0u) ctx.pc = DirectTargetPc;
+        if constexpr (DirectTargetPc != 0u) { ctx.pc = DirectTargetPc; _ReadWriteBarrier(); }
         if constexpr (DirectTargetPc != 0u) {
             if (const RecompiledFunction _ov = lookup_function_override(DirectTargetPc); _ov != nullptr) {
+                if constexpr (DirectTargetPc == 0x0893431Cu) {
+                    std::printf("[RT-OVERRIDE] override found for 0x0893431C ctx.pc=0x%08X\n", ctx.pc);
+                    std::fflush(stdout);
+                }
                 _ov(*this, ctx);
                 if (chain_context_invalidated_) return false;
                 return true;
@@ -277,6 +292,7 @@ public:
                     ctx.pc, static_cast<unsigned>(DirectTargetPc), static_cast<unsigned>(DirectEntryId));
                 std::fflush(stdout);
             }
+            _ReadWriteBarrier(); // prevent LTCG from eliding ctx.gpr writes (ra, etc.) before the call
             if (shared_aot_mem != nullptr) {
                 Function(*this, ctx, DirectEntryId, *shared_aot_mem);
             } else {
@@ -285,8 +301,10 @@ public:
             }
         } else if constexpr (DirectEntryId != 0u &&
                              std::is_invocable_v<decltype(Function), Runtime &, AllegrexContext &, std::uint16_t>) {
+            _ReadWriteBarrier();
             Function(*this, ctx, DirectEntryId);
         } else {
+            _ReadWriteBarrier();
             Function(*this, ctx);
         }
 #if !defined(PSPRECOMP_AOT_PRODUCTION_FASTPATHS)

@@ -10,6 +10,7 @@ namespace psprecomp {
 // PC: DL buffer base set by L_0899F630, used by L_089A1308 cmd writer to reset dlptr each frame
 static uint32_t s_ge_dl_base = 0u;
 void recomp_unit_0012_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &aot_mem) {
+    { static unsigned s_entry=0; if(s_entry++<4){std::printf("[U12-FUNC-ENTRY] ctx.pc=0x%08X entry_id=%u\n",ctx.pc,direct_entry_id);fflush(stdout);} }
     (void)direct_entry_id;
     std::uint32_t jump_target = 0u;
     std::uint32_t local_transfers = 0u;
@@ -29388,10 +29389,16 @@ L_08993210:
       goto L_0899321C;
     }
 L_0899321C:
+    if (ctx.gpr[4] < 0x08800000u) {
+        // null/invalid function pointer — skip call, treat as nop return (continue loop)
+        { static unsigned s_skip=0; if(s_skip<4){s_skip++;std::printf("[INIT-SKIP] null fn ptr gpr4=0x%08X ra=0x%08X\n",ctx.gpr[4],ctx.gpr[31]);fflush(stdout);} }
+        goto L_08993224;
+    }
     jump_target = ctx.gpr[4];
     ctx.gpr[31] = (0x08993224u);
     // nop
     ctx.pc = jump_target;
+    rt.clear_chain_invalidation(); // clear any invalidation from previous iteration
     { std::uint32_t tbl0_before = aot_mem.aot_load32(0x089C89C0u);
       // Save snapshot whenever the table has valid PSP addresses.
       if (!d012::g_jump_table_snapshot_valid && tbl0_before >= 0x08800000u && tbl0_before < 0x09F00000u) {
@@ -29412,16 +29419,37 @@ L_0899321C:
           }
       }
       printf("[INIT] calling function pointer 0x%08X (table[0]=0x%08X)\n", jump_target, tbl0_before); fflush(stdout);
-      if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08993224u) {
-          std::uint32_t tbl0_after = aot_mem.aot_load32(0x089C89C0u);
-          if (tbl0_after != tbl0_before) printf("[INIT] ** table[0] changed 0x%08X -> 0x%08X by fn 0x%08X\n", tbl0_before, tbl0_after, jump_target); fflush(stdout);
-          goto L_08993224;
+      rt.clear_chain_invalidation(); // clear stale invalidation before each init call
+      { const std::uint32_t saved_ra = ctx.gpr[31]; const std::uint32_t saved_sp = ctx.gpr[29];
+        if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x08993224u) {
+            std::uint32_t tbl0_after = aot_mem.aot_load32(0x089C89C0u);
+            if (tbl0_after != tbl0_before) printf("[INIT] ** table[0] changed 0x%08X -> 0x%08X by fn 0x%08X\n", tbl0_before, tbl0_after, jump_target); fflush(stdout);
+            goto L_08993224;
+        }
+        // invoke_chained_call failed — call the function directly via lookup.
+        // This keeps us inside the unit frame so L_08993224 is reachable.
+        static unsigned s_xunit=0; if(s_xunit<8){s_xunit++;std::printf("[INIT-XUNIT] direct inline call to 0x%08X, ra=0x%08X\n",jump_target,saved_ra);fflush(stdout);}
+        rt.clear_chain_invalidation();
+        { // Save caller-saved registers that the init function may clobber.
+          const std::uint32_t bk_sp = saved_sp;
+          const std::uint32_t bk_ra = saved_ra;
+          const std::uint32_t bk_s0 = ctx.gpr[16];
+          ctx.gpr[31] = saved_ra; ctx.gpr[29] = saved_sp;
+          ctx.pc = jump_target;
+          rt.invoke_isolated_aot(jump_target, ctx);
+          rt.clear_chain_invalidation();
+          // Restore frame registers so L_08993224 epilogue reads correct values.
+          ctx.gpr[29] = bk_sp;
+          ctx.gpr[31] = bk_ra;
+          ctx.gpr[16] = bk_s0;
+        }
+        goto L_08993224; }
       }
-      printf("[INIT] invoke_chained_call returned false for 0x%08X\n", jump_target); }
-    return;
+    goto L_08993224;
 L_08993224:
     ctx.gpr[16] = (ctx.gpr[16] + static_cast<std::uint32_t>(8));
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[16] + static_cast<std::uint32_t>(0)));
+    { static unsigned s_loop=0; if(s_loop++<16){std::printf("[INIT-LOOP#%u] gpr16=0x%08X next_fn=0x%08X\n",s_loop,ctx.gpr[16],ctx.gpr[4]);std::fflush(stdout);} }
     { const bool branch_taken = ctx.gpr[4] != 0u;
     // nop
       if (branch_taken) {
@@ -29460,6 +29488,7 @@ L_08993234:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08993244:
+    { static unsigned s_u12e=0; if(s_u12e++<4){std::printf("[U12-ENTRY] L_08993244 ra=0x%08X\n",ctx.gpr[31]);fflush(stdout);} }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[31]);
     ctx.gpr[31] = (0x08993254u);
@@ -29469,6 +29498,7 @@ L_08993254:
     ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
     jump_target = ctx.gpr[31];
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(16));
+    { static unsigned s_u12x=0; if(s_u12x++<4){std::printf("[U12-EXIT] L_08993254 jump_target=0x%08X local_transfers=%u\n",jump_target,local_transfers);fflush(stdout);} }
     ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
@@ -43815,6 +43845,11 @@ L_0899BB14:
     ctx.gpr[2] = (0u + 0u);
     goto L_0899BAF8;
 L_0899BB1C:
+    if (ctx.gpr[4] < 0x08000000u && ctx.gpr[4] != 0u) {
+        std::printf("[0899BB1C] a0=0x%08X is a UID not a ptr, skipping refcount decrement\n", ctx.gpr[4]); fflush(stdout);
+        jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
+        if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; } return;
+    }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[16]);
     ctx.gpr[16] = (ctx.gpr[4] + 0u);
