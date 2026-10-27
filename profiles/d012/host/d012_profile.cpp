@@ -5,6 +5,7 @@
 #include "psprecomp/runtime.hpp"
 #include "psprecomp/elf32.hpp"
 #include "kernel/kernel.hpp"
+#include "kernel/iso_image.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -107,7 +108,16 @@ static psprecomp::Runtime *s_runtime_ptr = nullptr;
 
 // File I/O — host file descriptor table (also used by io_open/read/close/lseek below)
 } // end anonymous namespace
-struct HostFd { FILE *fp; std::string path; };
+struct HostFd {
+    FILE *fp;           // non-null for host-file or disc-backed reads
+    std::string path;
+    // Disc-backed fields (valid when disc_iso != nullptr):
+    std::shared_ptr<portablekit::IsoImage> disc_iso;
+    std::uint64_t disc_offset = 0u; // byte offset of file start in ISO
+    std::uint64_t disc_size   = 0u; // file size in bytes
+    std::uint64_t disc_pos    = 0u; // current read position
+};
+static std::shared_ptr<portablekit::IsoImage> s_disc_iso;  // lazily loaded
 static std::unordered_map<std::uint32_t, HostFd> s_fds;
 static std::uint32_t s_next_fd = 0x10u;
 namespace { // resume anonymous namespace
@@ -172,6 +182,89 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         std::string host_path;
         try { host_path = rt.translate_path(psp_path).string(); } catch (...) { host_path = psp_path; }
         const char *mode = (flags & 2u) ? ((flags & 0x200u) ? "w+b" : "wb") : "rb";
+        // Special-case files before translate_path:
+        {
+            const std::string &pp = psp_path;
+            // package.bin: check D012_PACKAGE_BIN env var
+            const bool is_pkg = pp == "data/package.bin" || pp == "data/PACKAGE.BIN" ||
+                (pp.size() >= 11 && pp.substr(pp.size()-11) == "package.bin");
+            if (is_pkg && !(flags & 2u)) {
+                const char *pkg_env = std::getenv("D012_PACKAGE_BIN");
+                if (pkg_env && std::strlen(pkg_env) > 0) {
+                    FILE *fp2 = std::fopen(pkg_env, "rb");
+                    if (fp2) {
+                        const std::uint32_t fd2 = s_next_fd++;
+                        s_fds[fd2] = {fp2, psp_path};
+                        std::printf("[IO] sceIoOpen: \"%s\" -> fd=%u (D012_PACKAGE_BIN)\n", psp_path.c_str(), fd2);
+                        ctx.gpr[2] = fd2;
+                        ctx.pc = ctx.gpr[31];
+                        return;
+                    }
+                }
+                // Lazy-load disc.iso and look up PACKAGE.BIN inside it
+                if (!s_disc_iso) {
+                    // Search candidate locations for disc.iso
+                    std::vector<std::filesystem::path> candidates;
+                    // 1. game_root (translate_path base)
+                    try { candidates.push_back(rt.translate_path("disc.iso")); } catch (...) {}
+                    // 2. D012_GAME_PATH env var
+                    if (const char *gp = std::getenv("D012_GAME_PATH")) {
+                        candidates.push_back(std::filesystem::path(gp) / "disc.iso");
+                        candidates.push_back(std::filesystem::path(gp) / "D012" / "disc.iso");
+                    }
+                    // 3. g_game_root (same as translate_path but explicit)
+                    if (!g_game_root.empty())
+                        candidates.push_back(std::filesystem::path(g_game_root) / "disc.iso");
+                    for (const auto &disc_path : candidates) {
+                        std::printf("[PKG-ISO] trying '%s' exists=%d\n",
+                            disc_path.string().c_str(), (int)std::filesystem::exists(disc_path));
+                        std::fflush(stdout);
+                        if (std::filesystem::exists(disc_path)) {
+                            try { s_disc_iso = std::make_shared<portablekit::IsoImage>(disc_path); }
+                            catch (const std::exception &e) {
+                                std::printf("[PKG-ISO] open failed: %s\n", e.what()); std::fflush(stdout);
+                            }
+                            if (s_disc_iso) break;
+                        }
+                    }
+                }
+                if (s_disc_iso) {
+                    // Resolve "data/package.bin" under disc0:/PSP_GAME/USRDIR
+                    const std::string disc_rel = "PSP_GAME/USRDIR/" + pp;
+                    std::printf("[PKG-ISO] disc loaded, looking up '%s'\n", disc_rel.c_str()); std::fflush(stdout);
+                    if (const auto entry = s_disc_iso->find(disc_rel); entry && !entry->directory) {
+                        const std::uint32_t fd2 = s_next_fd++;
+                        HostFd hfd{};
+                        hfd.path = psp_path;
+                        hfd.disc_iso    = s_disc_iso;
+                        hfd.disc_offset = static_cast<std::uint64_t>(entry->lba) * portablekit::IsoImage::kSectorSize;
+                        hfd.disc_size   = entry->size;
+                        hfd.disc_pos    = 0u;
+                        hfd.fp          = nullptr;
+                        s_fds[fd2] = std::move(hfd);
+                        std::printf("[IO] sceIoOpen: \"%s\" -> fd=%u (disc ISO entry, size=%llu)\n",
+                            psp_path.c_str(), fd2, (unsigned long long)entry->size);
+                        ctx.gpr[2] = fd2;
+                        ctx.pc = ctx.gpr[31];
+                        return;
+                    }
+                }
+            }
+            // "ss" = Square Enix startup screen inside package.bin — return empty file
+            // so the resource manager gets a valid handle and reads zero bytes (splash skipped)
+            const bool is_ss = pp == "data/ss" || pp == "ss";
+            if (is_ss && !(flags & 2u)) {
+                FILE *fp2 = std::tmpfile();
+                if (fp2) {
+                    const std::uint32_t fd2 = s_next_fd++;
+                    s_fds[fd2] = {fp2, psp_path};
+                    std::printf("[IO] sceIoOpen: \"%s\" -> fd=%u (empty stub, splash skipped)\n", psp_path.c_str(), fd2);
+                    ctx.gpr[2] = fd2;
+                    ctx.pc = ctx.gpr[31];
+                    return;
+                }
+            }
+        }
         FILE *fp = std::fopen(host_path.c_str(), mode);
         if (!fp) {
             static std::unordered_map<std::string, bool> s_warned;
@@ -195,8 +288,19 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         const std::uint32_t size = ctx.gpr[6];
         auto it = s_fds.find(fd);
         if (it == s_fds.end()) { ctx.gpr[2] = static_cast<std::uint32_t>(-1); ctx.pc = ctx.gpr[31]; return; }
+        HostFd &hfd = it->second;
+        std::size_t n = 0u;
         std::vector<std::uint8_t> tmp(size);
-        const std::size_t n = std::fread(tmp.data(), 1, size, it->second.fp);
+        if (hfd.disc_iso) {
+            const std::uint64_t avail = hfd.disc_size > hfd.disc_pos ? hfd.disc_size - hfd.disc_pos : 0u;
+            const std::size_t want = static_cast<std::size_t>(std::min<std::uint64_t>(size, avail));
+            if (want > 0u) {
+                n = hfd.disc_iso->read(hfd.disc_offset + hfd.disc_pos, std::span<std::uint8_t>(tmp.data(), want));
+                hfd.disc_pos += n;
+            }
+        } else {
+            n = std::fread(tmp.data(), 1, size, hfd.fp);
+        }
         if (n > 0u) rt.memory().copy_in(buf, std::span<const std::uint8_t>(tmp.data(), n));
         std::printf("[IO-READ-HLE] fd=%u requested=%u read=%zu guest_buf=0x%08X\n", fd, size, n, buf);
         std::fflush(stdout);
@@ -207,7 +311,10 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
     s_handlers[0x089C5E48u] = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
         const std::uint32_t fd = ctx.gpr[4];
         auto it = s_fds.find(fd);
-        if (it != s_fds.end()) { std::fclose(it->second.fp); s_fds.erase(it); }
+        if (it != s_fds.end()) {
+            if (it->second.fp) std::fclose(it->second.fp);
+            s_fds.erase(it);
+        }
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
     };
@@ -219,8 +326,20 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         const int whence = static_cast<int>(ctx.gpr[7]);
         auto it = s_fds.find(fd);
         if (it == s_fds.end()) { ctx.gpr[2] = static_cast<std::uint32_t>(-1); ctx.pc = ctx.gpr[31]; return; }
-        const int r = std::fseek(it->second.fp, static_cast<long>(offset), whence);
-        const std::int64_t pos = r == 0 ? std::ftell(it->second.fp) : -1;
+        HostFd &hfd = it->second;
+        std::int64_t pos = -1;
+        if (hfd.disc_iso) {
+            std::int64_t new_pos = static_cast<std::int64_t>(hfd.disc_pos);
+            if      (whence == SEEK_SET) new_pos = offset;
+            else if (whence == SEEK_CUR) new_pos += offset;
+            else if (whence == SEEK_END) new_pos = static_cast<std::int64_t>(hfd.disc_size) + offset;
+            if (new_pos < 0) new_pos = 0;
+            hfd.disc_pos = static_cast<std::uint64_t>(new_pos);
+            pos = new_pos;
+        } else {
+            const int r = std::fseek(hfd.fp, static_cast<long>(offset), whence);
+            pos = r == 0 ? std::ftell(hfd.fp) : -1;
+        }
         ctx.gpr[2] = static_cast<std::uint32_t>(pos & 0xFFFFFFFFu);
         ctx.gpr[3] = static_cast<std::uint32_t>((pos >> 32) & 0xFFFFFFFFu);
         ctx.pc = ctx.gpr[31];
@@ -335,6 +454,16 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         ctx.pc = ctx.gpr[31];
     };
 
+    // Force-register generic_stub at every known handler VA — PortableKit's
+    // register_import_stub already claimed all syscall stub VAs before patch_d012_image
+    // runs, so the ELF cluster scan below won't install generic_stub there
+    // (has_function returns true). We must overwrite with generic_stub explicitly;
+    // generic_stub dispatches at call-time through s_handlers so all entries are served.
+    for (auto &[va, fn_] : s_handlers) {
+        (void)fn_;
+        rt.register_function(va, generic_stub, "d012_stub");
+    }
+
     // Cluster scan: runs of 3+ consecutive (jr $ra / nop) pairs = stub table
     const auto &bytes = elf.bytes();
     const auto &segs  = elf.segments();
@@ -391,13 +520,10 @@ void set_runtime(psprecomp::Runtime &rt) {
 void register_hle(psprecomp::Runtime &rt) {
     s_runtime_ptr = &rt;
     psprecomp::g_runtime_starvation_interval_fast = 0u;
-    // Sentinel return address — used as ra when there is no real caller.
-    // Must be a valid PSP address so it can be stored in direct_functions_.
-    rt.register_function(0x08800000u, [](psprecomp::Runtime &r, psprecomp::AllegrexContext &ctx) {
-        std::printf("[HLE] sentinel return reached ra=0x%08X pc=0x%08X\n", ctx.gpr[31], ctx.pc);
-        std::fflush(stdout);
-        r.stop("sentinel");
-    }, "hle_sentinel_08800000");
+    // NOTE: 0x08800000 is PortableKit's kThreadExitStub (kernel().thread_exit_stub).
+    // Do NOT register anything at this address — PortableKit owns it for cooperative
+    // thread scheduling. Overwriting it causes module_start to stop the runtime
+    // instead of yielding to the next ready thread.
     // Install frame-complete hook: when a function returns via ra=0 (null-PC)
     // while inside the render thread (after FUN_08933398 init), redirect to
     // L_089333E0 to re-enter the per-frame render loop.
@@ -422,47 +548,24 @@ void register_hle(psprecomp::Runtime &rt) {
         std::fflush(stdout);
         return 0x089333F0u;
     };
-    rt.register_hle("IoFileMgrForUser", 0x109F50BC,
-        [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
-            const std::string path = rt.memory().read_c_string(ctx.gpr[4]);
-            std::printf("[HLE] sceIoOpen: \"%s\" flags=0x%X mode=0x%X\n", path.c_str(), ctx.gpr[5], ctx.gpr[6]);
-            std::fflush(stdout);
-            ctx.gpr[2] = static_cast<std::uint32_t>(-1);
-        });
-    rt.register_hle("IoFileMgrForUser", 0x810C4BC3,
-        [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-            ctx.gpr[2] = 0u;
-        });
-    rt.register_hle("ThreadManForUser", 0x616403BA,
-        [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
-            std::printf("[HLE] sceKernelTerminateThread a0=0x%08X\n", ctx.gpr[4]);
-            std::fflush(stdout);
-            rt.stop("sceKernelTerminateThread");
-        });
-    rt.register_hle("SysMemUserForUser", 0xA6B0FB36,
-        [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-            const std::uint32_t size = ctx.gpr[7];
-            const std::uint32_t addr = (s_heap_next + 63u) & ~63u;
-            if (addr + size > kHeapEnd) { ctx.gpr[2] = ~0u; ctx.pc = ctx.gpr[31]; return; }
-            const std::uint32_t uid = s_next_uid++;
-            s_mem_blocks[uid] = {addr, size};
-            s_heap_next = addr + size;
-            std::printf("[HLE] sceKernelAllocPartitionMemory size=0x%X -> uid=%u addr=0x%08X\n", size, uid, addr);
-            ctx.gpr[2] = uid;
-            ctx.pc = ctx.gpr[31];
-        });
-    rt.register_hle("SysMemUserForUser", 0x9D9A5392,
-        [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-            auto it = s_mem_blocks.find(ctx.gpr[4]);
-            ctx.gpr[2] = (it != s_mem_blocks.end()) ? it->second.addr : 0u;
-            ctx.pc = ctx.gpr[31];
-        });
-    rt.register_hle("SysMemUserForUser", 0xB6D61D02,
-        [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-            s_mem_blocks.erase(ctx.gpr[4]);
-            ctx.gpr[2] = 0u;
-            ctx.pc = ctx.gpr[31];
-        });
+    // NOTE: sceIoOpen (0x109F50BC) and sceIoClose (0x810C4BC3) must NOT be
+    // overridden here. PortableKit's real IO HLE handles disc image reads.
+    // Returning -1 for sceIoOpen causes an infinite retry loop on package_info.bin.
+    // NOTE: ThreadManForUser and SysMemUserForUser overrides removed.
+    // PortableKit provides real sceKernelTerminateThread, sceKernelAllocPartitionMemory,
+    // sceKernelGetBlockHeadAddr, and sceKernelFreePartitionMemory. Overriding them with
+    // stubs breaks memory management and thread handling.
+
+// The game loads LIBFONT.PRX into heap via PortableKit's sceKernelStartModule.
+// The PRX entry lands at 0x09AE7070 (seen in logs). invoke_chained_call returns
+// false (direct_chainable_ is null for heap addresses), so the main dispatch loop
+// calls lookup_function(0x09AE7070). Register our nop there so it returns 0.
+    rt.register_function(0x09AE7070u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+        static unsigned s_n = 0;
+        if (s_n++ < 4) { std::printf("[HLE-STUB] PRX-init nop 0x09AE7070 ra=0x%08X\n", ctx.gpr[31]); std::fflush(stdout); }
+        ctx.gpr[2] = 0u;
+        ctx.pc = ctx.gpr[31];
+    }, "hle_prx_09AE7070_nop");
 
 // Stub out the jump-table dispatch function that crashes when task object
 // byte[96] indexes into an uninitialised table (null ptr + offset).
@@ -590,23 +693,10 @@ void register_hle(psprecomp::Runtime &rt) {
         }
     }, "hle_thread_exit");
 
-    rt.register_function(0x089C6000u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-        // sceKernelExitDeleteThread — PSP per-frame yield.
-        // The generated loop at L_08804278 calls this with ra=0x08804280.
-        // Return to ra so the frame loop continues at L_08804280.
-        static std::uint32_t s_xdt = 0u;
-        if (++s_xdt <= 5u) std::printf("[HLE] sceKernelExitDeleteThread(%d) -> nop-return ra=0x%08X #%u\n", ctx.gpr[4], ctx.gpr[31], s_xdt);
-        ctx.gpr[2] = 0u;
-        ctx.pc = ctx.gpr[31];
-    }, "hle_sceKernelExitDeleteThread");
-
-    rt.register_function(0x089C6030u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-        // Same treatment.
-        static std::uint32_t s_xt = 0u;
-        if (++s_xt <= 5u) std::printf("[HLE] sceKernelExitThread(%d) -> nop-return ra=0x%08X #%u\n", ctx.gpr[4], ctx.gpr[31], s_xt);
-        ctx.gpr[2] = 0u;
-        ctx.pc = ctx.gpr[31];
-    }, "hle_sceKernelExitThread");
+    // NOTE: 0x089C6000 (sceKernelExitDeleteThread) and 0x089C6030 (sceKernelExitThread)
+    // must NOT be overridden. PortableKit's force_import_stub binds them to
+    // kernel().exit_current_thread() which properly switches cooperative threads.
+    // Nop-return overrides break the scheduler.
 
     // ThreadManForUser stubs
 
@@ -761,6 +851,32 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_geunsetcallback");
+
+    // FUN_0899FA64: thin wrapper around sceGeListEnQueue/sceGeListEnQueueHead.
+    // param_1(gpr4)==1 -> EnQueueHead, else EnQueue. param_2(gpr5) = display list ptr.
+    // DAT_09af67e0=0x09AF67E0 (flag cleared), DAT_09af6808=0x09AF6808 (cbid),
+    // DAT_09af6804=0x09AF6804 (stores returned list_id). Returns 0 on success.
+    rt.register_function(0x0899FA64u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        static std::uint32_t s_n = 0u;
+        const std::uint32_t param1  = ctx.gpr[4];
+        const std::uint32_t list_va = ctx.gpr[5];
+        const std::uint32_t list_phys = list_va & 0x1FFFFFFFu;
+        // DAT_09af67e0 = 0
+        rt2.memory().aot_store32(0x09AF67E0u, 0u);
+        // DAT_09af6808 = cbid (from sceGeSetCallback); read it
+        const std::uint32_t cbid = rt2.memory().aot_load32(0x09AF6808u);
+        static std::uint32_t s_list_id = 1u;
+        if (++s_n <= 6u) std::printf("[FUN_0899FA64] #%u param1=%u list=0x%08X cbid=%u\n", s_n, param1, list_phys, cbid);
+        // Drive sceGeListEnQueue HLE logic inline (same as 0x089C5A78)
+        psprecomp::g_ge_list_start    = list_phys;
+        psprecomp::g_ge_exec_cursor   = list_phys;
+        psprecomp::g_ge_list_executed = false;
+        const std::uint32_t list_id = s_list_id++;
+        // DAT_09af6804 = list_id
+        rt2.memory().aot_store32(0x09AF6804u, list_id);
+        ctx.gpr[2] = 0u; // return 0 (success)
+        ctx.pc     = ctx.gpr[31];
+    }, "recomp_unit_0012_hle_0899FA64");
 
     // sceGeListEnQueue(list, stall, cbid, arg) -> list_id
     rt.register_function(0x089C5A78u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
@@ -1162,16 +1278,23 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u; ctx.pc = ctx.gpr[31];
     }, "recomp_unit_0005");
 
-    // sceKernelStopModule (NID 0xD1FF982A): PortableKit's HLE calls the module stop
-    // function pointer which points into the data section (0x08BA77D0), causing the
-    // interpreter to run 72k "instructions" through data until it hits 0x0000FFFF.
-    // Override to just return 0 (module stop succeeded, no callback needed).
-    rt.register_hle("ModuleMgrForUser", 0xD1FF982Au,
-        [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-            std::printf("[HLE] sceKernelStopModule nid=0xD1FF982A module=0x%08X -> 0\n", ctx.gpr[4]);
-            std::fflush(stdout);
-            ctx.gpr[2] = 0u;
-        });
+    // 0x08BA77D0 is stored in the pre-init global table as a data object pointer.
+    // The game (or PortableKit's module HLE) reads it back and calls it as a function.
+    // Units 27-31 are not recompiled, so the interpreter would run into data.
+    // Register it as a no-op so any call to it returns immediately.
+    rt.register_function(0x08BA77D0u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        static unsigned s_n = 0;
+        if (s_n++ < 4) { std::printf("[HLE-STUB] 0x08BA77D0 called ra=0x%08X -> nop\n", ctx.gpr[31]); std::fflush(stdout); }
+        ctx.gpr[2] = 0u;
+        // Avoid self-loop: if ra points back here, treat as thread exit
+        if (ctx.gpr[31] == 0x08BA77D0u || ctx.gpr[31] == 0u) {
+            rt2.stop("thread exited normally");
+            return;
+        }
+        ctx.pc = ctx.gpr[31];
+    }, "hle_stub_08BA77D0");
+    std::printf("[REGISTER] 0x08BA77D0 stub registered, has_fn=%d\n", (int)rt.has_function(0x08BA77D0u));
+    std::fflush(stdout);
 }
 
 static std::uint32_t s_last_addr = 0u;
@@ -1491,24 +1614,49 @@ std::uint32_t io_open(const std::string &psp_path, std::uint32_t flags) {
 std::int32_t io_read(std::uint32_t fd, void *buf, std::uint32_t size) {
     auto it = s_fds.find(fd);
     if (it == s_fds.end()) return -1;
-    const auto count = static_cast<std::int32_t>(std::fread(buf, 1, size, it->second.fp));
-    std::printf("[IO-READ] fd=%u requested=%u read=%d path=%s\n", fd, size, count, it->second.path.c_str());
+    HostFd &hfd = it->second;
+    std::int32_t count = 0;
+    if (hfd.disc_iso) {
+        const std::uint64_t avail = hfd.disc_size > hfd.disc_pos ? hfd.disc_size - hfd.disc_pos : 0u;
+        const std::size_t want = static_cast<std::size_t>(std::min<std::uint64_t>(size, avail));
+        if (want > 0u) {
+            count = static_cast<std::int32_t>(hfd.disc_iso->read(
+                hfd.disc_offset + hfd.disc_pos, std::span<std::uint8_t>(static_cast<std::uint8_t*>(buf), want)));
+            hfd.disc_pos += count;
+        }
+    } else {
+        count = static_cast<std::int32_t>(std::fread(buf, 1, size, hfd.fp));
+    }
+    std::printf("[IO-READ] fd=%u requested=%u read=%d path=%s\n", fd, size, count, hfd.path.c_str());
     std::fflush(stdout);
     return count;
 }
 
 std::int32_t io_close(std::uint32_t fd) {
     auto it = s_fds.find(fd);
-    if (it != s_fds.end()) { std::fclose(it->second.fp); s_fds.erase(it); }
+    if (it != s_fds.end()) {
+        if (it->second.fp) std::fclose(it->second.fp);
+        s_fds.erase(it);
+    }
     return 0;
 }
 
 std::int64_t io_lseek(std::uint32_t fd, std::int64_t offset, std::uint32_t whence) {
     auto it = s_fds.find(fd);
     if (it == s_fds.end()) return -1;
-    if (std::fseek(it->second.fp, static_cast<long>(offset), static_cast<int>(whence)) != 0)
+    HostFd &hfd = it->second;
+    if (hfd.disc_iso) {
+        std::int64_t new_pos = static_cast<std::int64_t>(hfd.disc_pos);
+        if      (whence == SEEK_SET) new_pos = offset;
+        else if (whence == SEEK_CUR) new_pos += offset;
+        else if (whence == SEEK_END) new_pos = static_cast<std::int64_t>(hfd.disc_size) + offset;
+        if (new_pos < 0) new_pos = 0;
+        hfd.disc_pos = static_cast<std::uint64_t>(new_pos);
+        return new_pos;
+    }
+    if (std::fseek(hfd.fp, static_cast<long>(offset), static_cast<int>(whence)) != 0)
         return -1;
-    return static_cast<std::int64_t>(std::ftell(it->second.fp));
+    return static_cast<std::int64_t>(std::ftell(hfd.fp));
 }
 
 } // namespace d012

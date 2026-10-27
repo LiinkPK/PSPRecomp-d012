@@ -198,6 +198,10 @@
           <span class="font-bold text-tokyo-accent min-w-[3rem]">S14</span>
           <span class="text-tokyo-muted"><strong class="text-tokyo-text">Init sequence traced; interpreter crash.</strong> All 7 XUNIT init entries complete. Scheduler dispatches, archive loads, render loop reached. <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">sceKernelStopModule</code> HLE (PortableKit-internal) reads the module stop-function pointer <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08BA77D0</code> and calls it. That address is in un-recompiled code (units 27–31 missing). Interpreter runs 72 801 instructions through the data section until it hits <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x0000FFFF</code> at <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08BEE950</code> — crash. NID override via <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">rt.register_hle</code> does not intercept the internal kernel call. Next: register <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08BA77D0</code> as a no-op HLE stub so the interpreter never runs there.</span>
         </div>
+        <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
+          <span class="font-bold text-tokyo-accent min-w-[3rem]">S15</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">CHAIN-BAD root cause found; first GE display list enqueued.</strong> Root cause of every <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">CHAIN-BAD</code> crash identified: <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">invoke_chained_direct</code> fast path in <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">runtime.hpp</code> never pre-set <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ctx.pc</code> before calling the target unit. All generated units dispatch via <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">switch(ctx.pc)</code> and ignore <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">direct_entry_id</code> — stale pc hit <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">default:</code> → <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ctx.pc=0</code>. One line added in the fast path fixes all call sites systemically. First confirmed GE display list enqueued: <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">[GE-ENQUEUE] list=0x09410180</code> — <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">GRAPHICS::DlSendTask</code> calling <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">sceGeListEnQueue</code> through the full recompiled chain. Current blocker: <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">sceKernelStopModule</code> → <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08BA77D0</code> (un-recompiled) → interpreter hits <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x0000FFFF</code> at <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08BEE950</code>. Fix: register <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08BA77D0</code> as a no-op stub via <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">rt.register_function</code>.</span>
+        </div>
       </div>
     </section>
 
@@ -253,7 +257,7 @@
     </section>
 
     <footer class="text-center text-xs text-tokyo-muted py-4 border-t border-tokyo-border">
-      PSPRecomp · Dissidia 012 PC Port · Last updated: <span class="font-bold text-tokyo-accent min-w-[3rem]">26/10/2026</span> ·
+      PSPRecomp · Dissidia 012 PC Port · Last updated: <span class="font-bold text-tokyo-accent min-w-[3rem]">27/10/2026</span> ·
       <a href="https://github.com/LiinkPK/PSPRecomp-d012" target="_blank" rel="noopener" class="hover:text-tokyo-accent">github.com/LiinkPK/PSPRecomp-d012</a>
     </footer>
 
@@ -309,7 +313,7 @@
           { id: "p3-t1", name: "Understand sceGu calls as recompiled MIPS code",               note: "Game builds display lists directly in RAM",  done: true  },
           { id: "p3-t2", name: "GE command interpreter skeleton (CLEAR, 2D sprites, flat-color)", note: "Software rasterizer handles basic 2D (Handled by PortableKit)",    done: true  },
           { id: "p3-t3", name: "Texture sampling — RGB565, RGBA8888, DXT, CLUT",               note: "Block-compressed + index-color formats (Handled by PortableKit)",    done: true  },
-          { id: "p3-t4", name: "First non-zero pixel output",                                    note: "S14 blocker: sceKernelStopModule HLE calls un-recompiled stop fn at 0x08BA77D0; interpreter hits 0x0000FFFF at 0x08BEE950 and crashes before any GE submission", done: false },
+          { id: "p3-t4", name: "First non-zero pixel output",                                    note: "S15: CHAIN-BAD fixed systemically (runtime.hpp). First GE display list enqueued (list=0x09410180). Blocker: sceKernelStopModule calls 0x08BA77D0 (un-recompiled) → interpreter crash at 0x08BEE950", done: false },
           { id: "p3-t5", name: "Translate display lists to Vulkan",                              note: "GE commands translate to Vulkan internally (Handled by PortableKit)", done: true  },
           { id: "p3-t6", name: "Validate GE interpreter against PPSSPP frame dumps",            note: "Frame-by-frame comparison milestone",       done: false },
         ]

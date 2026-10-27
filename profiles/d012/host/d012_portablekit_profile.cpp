@@ -93,20 +93,14 @@ static void patch_d012_image(psprecomp::Runtime &rt, const psprecomp::Elf32Image
     // Restore AOT helpers that HLE registration may overwrite
     register_aot_fixes(rt);
 
-    // Re-bind all PSP import stubs to PortableKit's real HLE, overriding the
-    // nop stubs and old standalone d012 HLE that unit_0014 registered.
-    // unit_0014 stubs SleepThreadCB/DelayThread as nop-returns; the main thread
-    // never yields and the window goes "not responding".
-    {
-        auto module = elf.find_module_info(rt.memory());
-        if (module) {
-            const auto imports = elf.scan_imports(rt.memory(), *module);
-            for (const auto &imp : imports)
-                rt.force_import_stub(imp.stub_address, imp.library, imp.nid);
-            std::printf("[D012] force-rebound %zu import stubs to PortableKit HLE\n", imports.size());
-            std::fflush(stdout);
-        }
-    }
+    // Register all D012-specific HLE stubs (including 0x08BA77D0 no-op).
+    // register_d012_extra_hle only gets an HleRegistrar, not a Runtime, so
+    // function-address stubs must be registered here instead.
+    d012::register_hle(rt);
+
+    // Register D012's custom IO/thread stubs (sceIoOpen, sceIoRead, etc.)
+    // with PACKAGE.BIN-aware virtual filesystem handlers.
+    d012::scan_and_register_stubs(rt, elf);
 
     // Menu overlay: try embedded asset first, then file next to executable
     // (The embedded asset is compiled in via d012_embedded_assets_v2.cpp,
@@ -514,8 +508,11 @@ static void patch_d012_image(psprecomp::Runtime &rt, const psprecomp::Elf32Image
     }, "hle_sceKernelLoadModule");
 
     // sceKernelStartModule: accept any UID, return 0 (success).
-    rt.register_function(0x089C57C8u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    // Also redirect the PRX init fn-ptr at 0x089A09C0 to our nop stub so the
+    // interpreter never runs uncompiled PRX code loaded into heap.
+    rt.register_function(0x089C57C8u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         std::printf("[HLE] sceKernelStartModule uid=%u\n", ctx.gpr[4]);
+        rt2.memory().store32(0x089A09C0u, 0x08BA7800u);
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
     }, "hle_sceKernelStartModule");

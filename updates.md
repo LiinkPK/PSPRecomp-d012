@@ -1,18 +1,18 @@
-﻿# PSPRecomp â€“ Dissidia 012 (ULES01505.BIN) â€“ Current State
+﻿# PSPRecomp — Dissidia 012 (ULES01505.BIN) — Current State
 
-**Last updated:** 22/10/2026 (Session 13)
+**Last updated:** 27/10/2026 (Session 15)
 
-**Goal:** Genuinely boot Dissidia 012â€™s original startup path and visibly render the authentic Square Enix logo through guest asset I/O â†’ guest VRAM â†’ GE â†’ the native window. A blank window, hard-coded logo, placeholder, or host overlay does not count.
+**Goal:** Genuinely boot Dissidia 012's original startup path and visibly render the authentic Square Enix logo through guest asset I/O — guest VRAM — GE — the native window. A blank window, hard-coded logo, placeholder, or host overlay does not count.
 
-### Consolidated Sessions 9â€“11
+### Consolidated Sessions 9—11
 
-- **Session 9 â€” Scene discovery:** Init completed and the guest created the Square Enix scene (`0x2713`) in the pending-scene list. Activation and drawable GE commands were still absent.
-- **Session 10 â€” Real startup I/O:** A visible native run loaded the real archive data into guest memory and presented guest VRAM without a host-side logo. GE execution remained state-only (`GE-PRIM=0`, `GE-CLEAR=0`, `GE-VDATA=0`).
-- **Session 11 â€” Dispatch and GE stability:** Cross-unit dispatch and several GE crashes were corrected. The executable reaches real MPK loading and presents a native window, but malformed archive state still prevents scene geometry. The authentic logo remained unverified.
-- **Session 12 â€” MPK corruption traced and allocator fixed:** Real embedded assets load and the framebuffer path is active. The root cause was empty `sceKernelAllocMemoryBlock`/`sceKernelGetMemoryBlockAddr` stubs at `0x089C5F38`/`0x089C5F20`; they left the effect allocator with a stale address, causing the `0x38AAF` copy to overlap MPK table `0x089CC268`. Both syscall bodies now use the existing guest heap allocator. The fix compiles, but has not yet been run; the logo remains unverified.
+- **Session 9 — Scene discovery:** Init completed and the guest created the Square Enix scene (`0x2713`) in the pending-scene list. Activation and drawable GE commands were still absent.
+- **Session 10 — Real startup I/O:** A visible native run loaded the real archive data into guest memory and presented guest VRAM without a host-side logo. GE execution remained state-only (`GE-PRIM=0`, `GE-CLEAR=0`, `GE-VDATA=0`).
+- **Session 11 — Dispatch and GE stability:** Cross-unit dispatch and several GE crashes were corrected. The executable reaches real MPK loading and presents a native window, but malformed archive state still prevents scene geometry. The authentic logo remained unverified.
+- **Session 12 — MPK corruption traced and allocator fixed:** Real embedded assets load and the framebuffer path is active. The root cause was empty `sceKernelAllocMemoryBlock`/`sceKernelGetMemoryBlockAddr` stubs at `0x089C5F38`/`0x089C5F20`; they left the effect allocator with a stale address, causing the `0x38AAF` copy to overlap MPK table `0x089CC268`. Both syscall bodies now use the existing guest heap allocator. The fix compiles, but has not yet been run; the logo remains unverified.
 
 **Project:** `C:\path\to\your\folder\PSPRecomp`  
-**Build:** `cmake --build out\d012 --config Release` â†’ binary at `out\d012\profiles\d012\Release\d012_native.exe`  
+**Build:** `cmake --build out\d012 --config Release` — binary at `out\d012\profiles\d012\Release\d012_native.exe`  
 **Run:** `.\d012_native.exe "C:\path\to\original\ULES01505_FFSTJP.BIN"`
 
 ---
@@ -31,7 +31,7 @@
 
 ## How to add a missing function
 
-When `invoke_chained_call` hits an unregistered address â†’ null-PC crash. Fix:
+When `invoke_chained_call` hits an unregistered address — null-PC crash. Fix:
 
 1. Find which unit: `unit = (addr - 0x08804040) / 0x20000`
 2. Open `profiles/d012/generated/generated_unit_000N.cpp`
@@ -63,7 +63,7 @@ cd C:\path\to\your\folder\PSPRecomp\out\d012\profiles\d012\Release
 
 ---
 
-## GE (Graphics Engine) subsystem â€” what was done
+## GE (Graphics Engine) subsystem — what was done
 
 The game has its own internal GE manager (does **not** import `sceGeListEnQueue`/`sceGeDrawSync`). Only imports: `sceGeListSync`, `sceGeUnsetCallback`, `sceGeListEnQueueHead`, `sceGeEdramGetSize`, `sceGeContinue`.
 
@@ -84,11 +84,11 @@ The game has its own internal GE manager (does **not** import `sceGeListEnQueue`
 | `0x00000010` | `GE_struct+72` zeroed via error path `L_0899F7F8` | Commented-out zero-store in `L_0899F7F8` |
 | `0x50000009` | `dlptr = 0x9F000200` passes null check but fails range | Upgraded all 52 guards to range-check: `< 0x08800000 \|\| >= 0x09F00000` |
 | `0x9F000208` | `slot+8` stored `stall & 0x1FFFFFFF = 0x1F000200` instead of list base | `L_0899F630` line ~49715: store `gpr[16] & 0x0FFFFFFF` (list base). Follows PPSSPP: `slot.pc = startpc = list & 0x0FFFFFFF` |
-| Infinite loop / null-PC on cmds 0â€“21 | `L_089A1308` emitted as indirect jump through `RAM[table+cmd*4]`, recompiler mis-decoded MIPS switch table as a jump-through-pointer. Actual function `FUN_089a12fc` is a switch that writes one GE DL word per cmd. | Replaced `L_089A1308` with full switch implementation from pseudocode. Also added unit-14 no-op stubs + `register_function` for `0x089D18F8`â€“`0x089D1948`. |
+| Infinite loop / null-PC on cmds 0—21 | `L_089A1308` emitted as indirect jump through `RAM[table+cmd*4]`, recompiler mis-decoded MIPS switch table as a jump-through-pointer. Actual function `FUN_089a12fc` is a switch that writes one GE DL word per cmd. | Replaced `L_089A1308` with full switch implementation from pseudocode. Also added unit-14 no-op stubs + `register_function` for `0x089D18F8`—`0x089D1948`. |
 
 ---
 
-## Display subsystem â€” current state
+## Display subsystem — current state
 
 `sceDisplaySetFrameBuf` is called every frame (confirmed). Double-buffered:
 - Front buffer: `0x04000000` (PSP VRAM offset 0)
@@ -99,7 +99,7 @@ VRAM is accessible via `rt.memory().vram_bytes()`. A host window (SDL2/Win32) is
 
 **Display state machine** (`FUN_08865ED0`, task fn=`0x08865ED0`):
 - State 0 = idle, calls `FUN_0886598c` (GE render list writer) each frame
-- State 1â†’2â†’3 = triggered by `FUN_08866178` on stereo mode change; runs display setup chain
+- State 1—2—3 = triggered by `FUN_08866178` on stereo mode change; runs display setup chain
 - The state machine is registered as a task and dispatched by the task scheduler every frame
 
 **Task scheduler** (`FUN_0888245C`, unit 3): confirmed working. Tasks dispatched each frame:
@@ -116,10 +116,10 @@ VRAM is accessible via `rt.memory().vram_bytes()`. A host window (SDL2/Win32) is
 
 ## HLE stub placement rule (learned the hard way)
 
-All PSP import stubs cluster in unit 14 (`0x089C4040`â€“`0x089C6040`). The generated unit already has `jr $ra / nop` for each stub VA and registers them as `"recomp_unit_0014"`. This means:
+All PSP import stubs cluster in unit 14 (`0x089C4040`—`0x089C6040`). The generated unit already has `jr $ra / nop` for each stub VA and registers them as `"recomp_unit_0014"`. This means:
 
 - `s_handlers[VA]` in `d012_profile.cpp` is **never reached**. The generated unit intercepts first
-- `register_hle(library, nid, fn)` is also dead for these â€” `invoke_import` is never called from AOT units
+- `register_hle(library, nid, fn)` is also dead for these — `invoke_import` is never called from AOT units
 
 **Fix:** Implement all HLE logic directly as label bodies in `generated_unit_0014.cpp`.
 
@@ -148,28 +148,28 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`â€“`0x089C6040`). The 
 - Backup flags remain in place for the malformed GE lists, synthetic pending lists, slot lists, render-chain replay, and scheduler maintenance path.
 - Foreground watchdog result: the guest later enters the known unbounded scheduler/task pattern (dispatches `0x088A1AE4`/`0x088D15E0` repeatedly); the run was terminated deliberately rather than left spinning.
 
-**Rendering gate `DAT_089D69DC` is now open (dc=01) from frame 2 onward.** âœ…
-**`DAT_089D69E0` (render object ptr) is now set to `0x08C13A94` by `FUN_088769CC`.** âœ…
-**`FUN_08883EE8` (DL builder) runs every frame with the correct render object pointer.** âœ…
-**`FUN_0893354C` boot gate check passes; all 47+ subsystem inits fire.** âœ…
-**`FUN_08869954` returns 1 (MPK magic check passes). `main.bin` loaded correctly.** âœ…
-**Audio channel search infinite loop bypassed (`FUN_088A0EEC` stub â†’ -1).** âœ…
-**`FUN_08869AB4` null deref fixed (not-found path instead of self-loop).** âœ…
-**Menu MPK files extracted from PACKAGE.BIN, game proceeds past archive init.** âœ…
-**Init sequence completes. Task scheduler runs 8+ tasks per frame.** âœ…
-**Render chain (`DAT_09AF719C`) confirmed written with `0x08C15FD0` by `FUN_089AD204` (RCHAIN-INSERT).** âœ…
-**VCB display list executor picks up the correct render chain pointer.** âœ…
-**GE vertex address lookup extended to cover PSP RAM range `0x08000000â€“0x0A000000`.** âœ…
-**`general_archive/main/main.bin` (1.2 MB) confirmed loaded into guest RAM at `0x09644A80`.** âœ…
-**Root cause of zero pixels identified: ARCH-SYNTH fake entries set sub-chunk count = 0, blocking all geometry loads.** âŒ
-**Current blocker: archive object not populated from `main.bin` â†’ ARCH-SYNTH fires â†’ sub-chunks=0 â†’ no vertex data written.** âŒ
+**Rendering gate `DAT_089D69DC` is now open (dc=01) from frame 2 onward.** ✅
+**`DAT_089D69E0` (render object ptr) is now set to `0x08C13A94` by `FUN_088769CC`.** ✅
+**`FUN_08883EE8` (DL builder) runs every frame with the correct render object pointer.** ✅
+**`FUN_0893354C` boot gate check passes; all 47+ subsystem inits fire.** ✅
+**`FUN_08869954` returns 1 (MPK magic check passes). `main.bin` loaded correctly.** ✅
+**Audio channel search infinite loop bypassed (`FUN_088A0EEC` stub — -1).** ✅
+**`FUN_08869AB4` null deref fixed (not-found path instead of self-loop).** ✅
+**Menu MPK files extracted from PACKAGE.BIN, game proceeds past archive init.** ✅
+**Init sequence completes. Task scheduler runs 8+ tasks per frame.** ✅
+**Render chain (`DAT_09AF719C`) confirmed written with `0x08C15FD0` by `FUN_089AD204` (RCHAIN-INSERT).** ✅
+**VCB display list executor picks up the correct render chain pointer.** ✅
+**GE vertex address lookup extended to cover PSP RAM range `0x08000000—0x0A000000`.** ✅
+**`general_archive/main/main.bin` (1.2 MB) confirmed loaded into guest RAM at `0x09644A80`.** ✅
+**Root cause of zero pixels identified: ARCH-SYNTH fake entries set sub-chunk count = 0, blocking all geometry loads.** ❌
+**Current blocker: archive object not populated from `main.bin` — ARCH-SYNTH fires — sub-chunks=0 — no vertex data written.** ❌
 
 ### What was done this session (session 4)
 
 #### main.bin extraction
 - Wrote C# scanner (`FindMainBin.cs`, `FindLargeMPK.cs`) to scan `PACKAGE.BIN` for MPK blocks
 - Identified `PACKAGE.BIN offset 0x2000`, size `0x129800` (1,218,560 bytes) as `general_archive/main/main.bin`
-- Extracted to `original/general_archive/main/main.bin` â€” starts with `MPK ` magic âœ…
+- Extracted to `original/general_archive/main/main.bin` — starts with `MPK ` magic ✅
 - Created minimal 16-byte MPK stub for `original/general_archive/main/JP/main_lang.bin` (0 entries)
 - Created 84-byte zero stub for `original/language.bin`
 - Created 900-byte PSF stub for `original/save/JP/PARAM.SFO`
@@ -201,7 +201,7 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`â€“`0x089C6040`). The 
 | `L_08813604` sub-pointer null | Skip call if gpr[16]+4 = 0 | `generated_unit_0000.cpp` |
 | `0x089389E0` unregistered jump-table target | Added stub + dispatch case in unit 9 | `generated_unit_0009.cpp` |
 | `0x001ECF3B` unregistered (bad fn ptr) | Guard at `L_0886313C` skips call if outside RAM | `generated_unit_0002.cpp` |
-| `FUN_08872F08` VRAM read crash | Stubbed â€” reads `0x0A000000` (VRAM mirror), unsupported | `generated_unit_0003.cpp` |
+| `FUN_08872F08` VRAM read crash | Stubbed — reads `0x0A000000` (VRAM mirror), unsupported | `generated_unit_0003.cpp` |
 
 ### Session 9 findings (15/10/2026)
 
@@ -213,16 +213,43 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`â€“`0x089C6040`). The 
 - Node `0x08C15FD0` JUMP pointed back to itself (JUMP at word[8], target = word[0]). Old self-jump guard `new_p == p` failed.
 - Fixed: 16-entry history array in `ge_render.cpp`. If a JUMP target was seen before in the same exec call, abort.
 
-#### Scene creation (Square Enix logo â€” type 0x2713)
-- `DAT_089D603A` = 1 was blocking scene creation. When 603Aâ‰ 0, `FUN_08875364` (state=0) increments state rather than calling `FUN_088A24D4(0, 0x2713, 1, 0)`.
+#### Scene creation (Square Enix logo — type 0x2713)
+- `DAT_089D603A` = 1 was blocking scene creation. When 603A≠ 0, `FUN_08875364` (state=0) increments state rather than calling `FUN_088A24D4(0, 0x2713, 1, 0)`.
 - ARCH-SYNTH in `generated_unit_0003.cpp`: forces `603A=0` when `6039=1` and state=0.
-- Result: `FUN_088A24D4(0, 0x2713, 1, 0)` called. Scene object created at `0x08C10DA0`. Pool count 64â†’63. Scene added to pending list `DAT_09B4CF98`.
+- Result: `FUN_088A24D4(0, 0x2713, 1, 0)` called. Scene object created at `0x08C10DA0`. Pool count 64—63. Scene added to pending list `DAT_09B4CF98`.
 
 #### Current blocker: scene not activating
 - Scene `0x08C10DA0` (type `0x2713`, vtable `0x089CAC90`) is in **pending list** `DAT_09B4CF98`.
-- Activation requires: `FUN_0888B21C` â†’ `FUN_08895FE4` â†’ `FUN_088A2664` (iterates pending list) â†’ `FUN_088A1E44` (activates scene, moves to `DAT_09B48358`).
+- Activation requires: `FUN_0888B21C` — `FUN_08895FE4` — `FUN_088A2664` (iterates pending list) — `FUN_088A1E44` (activates scene, moves to `DAT_09B48358`).
 - None of the 8 running tasks call this chain. The render chain stays at gray node `0x08C15FD0` every frame.
 - **Next step**: identify which task/caller invokes `FUN_0888B21C`, ensure it runs, OR add ARCH-SYNTH to directly call `FUN_088A2664` once per frame.
+
+---
+
+### Session 15 findings (27/10/2026)
+
+#### Root cause of all CHAIN-BAD crashes — found and fixed
+
+- **Root cause:** `invoke_chained_direct` fast path in `portablekit/include/psprecomp/runtime.hpp` never pre-set `ctx.pc` before calling the target unit function. Every generated unit dispatches via `switch(ctx.pc)` and ignores `direct_entry_id` (`(void)direct_entry_id;` on line 14 of each). So when the fast path called `Function(*this, ctx, ...)` with stale `ctx.pc`, the callee's switch hit `default:` → `ctx.pc = local_pc = 0` → returned `false` → CHAIN-BAD.
+- **Fix:** One line added in `runtime.hpp` fast path, just after the `DepthGuard`, before the `Function` call:
+  ```cpp
+  if constexpr (DirectTargetPc != 0u) ctx.pc = DirectTargetPc;
+  ```
+  This fix is systemic — all task functions and all cross-unit calls through `invoke_chained_direct` are corrected at once.
+- **Verified intermediate:** Manually added `ctx.pc = 0x0899FA64u;` before the specific call in `generated_unit_0003.cpp` line 7360 confirmed `[TASK-OK#1]` and `[GE-ENQUEUE] list=0x09410180` — first confirmed GE display list submission.
+- **Final:** Manual fix reverted; systemic `runtime.hpp` change replaces it. Full rebuild in progress.
+
+#### GE display list confirmed enqueued
+
+- `GRAPHICS::DlSendTask` (fn=`0x08865E98`) now completes successfully.
+- `[GE-ENQUEUE] list=0x09410180` — `sceGeListEnQueue` called with a real display list address.
+- Chain: unit_0003 → unit_0012 (`FUN_0899FA64`) → unit_0014 (`sceGeListEnQueue` HLE at `0x089C5A78`).
+
+#### Current blocker
+
+- PortableKit's internal `sceKernelStopModule` reads the module stop-function pointer `0x08BA77D0` and calls it. Units 27–31 are not recompiled; the interpreter handles that address.
+- Interpreter runs ~72,800 instructions through what is actually data section memory, eventually hitting instruction word `0x0000FFFF` at `0x08BEE950` — crash.
+- `rt.register_hle` NID override does **not** intercept PortableKit's internal kernel call; the fix must register `0x08BA77D0` itself as a no-op stub via `rt.register_function`.
 
 ---
 
@@ -230,30 +257,30 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`â€“`0x089C6040`). The 
 
 #### Render pipeline trace
 - Confirmed render chain at `DAT_09AF719C` is written with node `0x08C15FD0` by `FUN_089AD204` (RCHAIN-INSERT)
-- Frame ordering: `sceDisplaySetFrameBuf` GE exec fires BEFORE RCHAIN-INSERT (chain empty), VCB exec fires AFTER (chain populated â€” correct path)
+- Frame ordering: `sceDisplaySetFrameBuf` GE exec fires BEFORE RCHAIN-INSERT (chain empty), VCB exec fires AFTER (chain populated — correct path)
 - GE DL at node `0x08C15FD0`: first word `0x5C808080` = JUMP opcode targeting `0x08808080` (inside guest RAM)
-- `0x08808080` is all zeros â€” vertex data never written there
-- Fixed GE vertex address lookup to also cover PSP RAM range `0x08000000â€“0x0A000000` (was only checking VRAM)
+- `0x08808080` is all zeros — vertex data never written there
+- Fixed GE vertex address lookup to also cover PSP RAM range `0x08000000—0x0A000000` (was only checking VRAM)
 
 #### Root cause of zero pixels (ARCH-SYNTH sub-chunk count)
-- Traced full code path: `FUN_088D2980` â†’ ARCH-SYNTH intercept â†’ returns fake entry with `sub_data+10 = 0`
+- Traced full code path: `FUN_088D2980` — ARCH-SYNTH intercept — returns fake entry with `sub_data+10 = 0`
 - `sub_data+10` is the sub-chunk count; geometry load loop exits immediately when count=0
 - `main.bin` IS loaded to `0x09644A80` via `FUN_08862854`, but the archive *object* (struct pointed to by `gpr[4]`) has `hdr+8 = 0` (empty entry table)
-- The archive object's index table is not populated â€” the parsing/init function that should scan `main.bin` and build the object table hasn't run, or ran before `main.bin` was loaded
+- The archive object's index table is not populated — the parsing/init function that should scan `main.bin` and build the object table hasn't run, or ran before `main.bin` was loaded
 - **Next step**: trace why archive object at `gpr[4]` remains empty despite `main.bin` being loaded; find and trigger the init function that builds the entry table
 
 ### Session 6 crash fixes / investigation
 
 | Crash | Root cause | Status |
 |---|---|---|
-| `0x0A000004` in task 3 `FUN_08872F08` | Traced through unit 9 â†’ unit 3 `L_0887263C`, `gpr[8]+4` where `gpr[8]=0x0A000000`. Defensive guards added at `L_088726B0`, `L_088726F4`, `L_0887263C` in unit 3 | Guards left in; crash source is `gpr[16]+64` storing the VRAM ptr `0x0A000000` |
-| `0x0C000004` (after investigation) | `gpr[8]=0x0C000000` loaded from `gpr[8]+4` where `gpr[8]=0x0A000000`. `0x0C000000` = PSP write-combine VRAM alias (`0x4C000000 & 0x1FFFFFFF`) â€” not handled by `is_vram_window` which only covers `0x04000000â€“0x04800000` | **Next session**: add `0x0C000000` VRAM mirror to `is_vram_window` in `guest_memory.cpp` |
+| `0x0A000004` in task 3 `FUN_08872F08` | Traced through unit 9 — unit 3 `L_0887263C`, `gpr[8]+4` where `gpr[8]=0x0A000000`. Defensive guards added at `L_088726B0`, `L_088726F4`, `L_0887263C` in unit 3 | Guards left in; crash source is `gpr[16]+64` storing the VRAM ptr `0x0A000000` |
+| `0x0C000004` (after investigation) | `gpr[8]=0x0C000000` loaded from `gpr[8]+4` where `gpr[8]=0x0A000000`. `0x0C000000` = PSP write-combine VRAM alias (`0x4C000000 & 0x1FFFFFFF`) — not handled by `is_vram_window` which only covers `0x04000000—0x04800000` | **Next session**: add `0x0C000000` VRAM mirror to `is_vram_window` in `guest_memory.cpp` |
 
-**Root fix needed**: `GuestMemory::is_vram_window()` must also accept `0x0C000000â€“0x0C800000` (write-combine VRAM aperture). Then `0x0C000000+4` will resolve to VRAM offset 4 instead of throwing.
+**Root fix needed**: `GuestMemory::is_vram_window()` must also accept `0x0C000000—0x0C800000` (write-combine VRAM aperture). Then `0x0C000000+4` will resolve to VRAM offset 4 instead of throwing.
 
-### Current blocker: task loop â€” CHAIN-BAD / unregistered 0x08C13B40
+### Current blocker: task loop — CHAIN-BAD / unregistered 0x08C13B40
 
-After init, the task scheduler fires. Several tasks return to `ra=0x8888505B` (corrupt â€” float data misread as return address). One task tries to jump to `0x08C13B40` (heap-allocated, not a recompiled function â€” may be a dynamically-created callback).
+After init, the task scheduler fires. Several tasks return to `ra=0x8888505B` (corrupt — float data misread as return address). One task tries to jump to `0x08C13B40` (heap-allocated, not a recompiled function — may be a dynamically-created callback).
 
 ### Watchdog finding
 
@@ -263,14 +290,14 @@ After init, the task scheduler fires. Several tasks return to `ra=0x8888505B` (c
 
 ### Known archive paths in ELF binary (baked in at compile time)
 ```
-general_archive/main/main.bin          â† loaded âœ…
-general_archive/main/JP/main_lang.bin  â† stub (0 entries)
-general_archive/main/main_prologus.bin â† not yet loaded
-general_archive/main/JP/main_lang_prologus.bin â† not yet loaded
-general_archive/field/menu.bin         â† extracted but not yet registered
-general_archive/field/JP/menu_lang.bin â† not yet loaded
-general_archive/field/field.bin        â† not yet loaded
-general_archive/field/ZQ/field_lang.bin â† not yet loaded
+general_archive/main/main.bin          → loaded ✅
+general_archive/main/JP/main_lang.bin  → stub (0 entries)
+general_archive/main/main_prologus.bin → not yet loaded
+general_archive/main/JP/main_lang_prologus.bin → not yet loaded
+general_archive/field/menu.bin         → extracted but not yet registered
+general_archive/field/JP/menu_lang.bin → not yet loaded
+general_archive/field/field.bin        → not yet loaded
+general_archive/field/ZQ/field_lang.bin → not yet loaded
 ```
 
 ### Session 7 wrap-up (15/10/2026)

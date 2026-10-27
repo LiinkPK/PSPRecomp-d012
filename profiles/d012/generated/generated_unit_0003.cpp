@@ -9,6 +9,8 @@
 namespace psprecomp {
 void recomp_unit_0003_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t direct_entry_id, GuestMemory::AotFastView &aot_mem) {
     (void)direct_entry_id;
+    { static std::uint32_t s_ent=0u; ++s_ent;
+      if (s_ent<=3u || ctx.pc==0x08865E98u) { std::printf("[U3-ENTRY] pc=0x%08X ra=0x%08X\n",ctx.pc,ctx.gpr[31]); std::fflush(stdout); } }
     std::uint32_t jump_target = 0u;
     std::uint32_t local_transfers = 0u;
     std::uint32_t local_pc = 0u;
@@ -5682,6 +5684,8 @@ LOCAL_DISPATCH:
 
 
     default:
+        { static std::uint32_t s_def=0u; ++s_def;
+          if (s_def<=5u) { std::printf("[U3-DEFAULT] pc=0x%08X local_pc=0x%08X\n",ctx.pc,local_pc); std::fflush(stdout); } }
         ctx.pc = local_pc;
         return;
     }
@@ -7289,6 +7293,8 @@ L_0886586C:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08865918:
+    { static std::uint32_t s_918=0u; ++s_918;
+      if (s_918<=3u) std::printf("[918] a0=0x%08X ra=0x%08X\n",ctx.gpr[4],ctx.gpr[31]); std::fflush(stdout); }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     ctx.gpr[5] = (aot_mem.aot_load8(ctx.gpr[4] + static_cast<std::uint32_t>(11470)));
     ctx.gpr[6] = (0u | 1u);
@@ -7357,6 +7363,8 @@ L_08865980:
     ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
     jump_target = ctx.gpr[31];
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(16));
+    { static std::uint32_t s_980=0u; ++s_980;
+      if (s_980<=3u) std::printf("[980-ret] jump_target=0x%08X\n",jump_target); std::fflush(stdout); }
     ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
@@ -7918,6 +7926,8 @@ L_08865E8C:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08865E98:
+    { static std::uint32_t s_e98=0u; ++s_e98;
+      if (s_e98<=3u) std::printf("[E98] ra=0x%08X sp=0x%08X\n",ctx.gpr[31],ctx.gpr[29]); std::fflush(stdout); }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     ctx.gpr[4] = (2205u << 16u);
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(24256)));
