@@ -8168,7 +8168,7 @@ L_0886603C:
     ctx.gpr[31] = (0x08866054u);
     ctx.gpr[16] = (ctx.gpr[4] | 0u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4417u, 0x0899F468u>(ctx, &aot_mem) && ctx.pc == 0x08866054u) goto L_08866054;
-    return;
+    { static unsigned s_603c_1=0; if(s_603c_1++<3){std::printf("[U3-603C-1-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08866054:
     ctx.gpr[5] = (2230u << 16u);
     ctx.gpr[4] = (0u | 0u);
@@ -8176,7 +8176,7 @@ L_08866054:
     ctx.gpr[31] = (0x08866068u);
     ctx.gpr[5] = (ctx.gpr[5] + static_cast<std::uint32_t>(13568));
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4436u, 0x0899F5A4u>(ctx, &aot_mem) && ctx.pc == 0x08866068u) goto L_08866068;
-    return;
+    { static unsigned s_603c_2=0; if(s_603c_2++<3){std::printf("[U3-603C-2-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08866068:
     ctx.gpr[6] = (aot_mem.aot_load8(ctx.gpr[16] + static_cast<std::uint32_t>(11471)));
     ctx.gpr[17] = (9u << 16u);
@@ -8199,7 +8199,7 @@ L_08866080:
     ctx.gpr[31] = (0x088660A0u);
     ctx.gpr[6] = (0u | 512u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4516u, 0x0899FCACu>(ctx, &aot_mem) && ctx.pc == 0x088660A0u) goto L_088660A0;
-    return;
+    { static unsigned s_603c_3=0; if(s_603c_3++<3){std::printf("[U3-603C-3-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_088660A0:
     ctx.gpr[4] = (0u | 480u);
     ctx.gpr[5] = (0u | 272u);
@@ -8207,13 +8207,13 @@ L_088660A0:
     ctx.gpr[31] = (0x088660B4u);
     ctx.gpr[7] = (0u | 512u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4563u, 0x089A026Cu>(ctx, &aot_mem) && ctx.pc == 0x088660B4u) goto L_088660B4;
-    return;
+    { static unsigned s_603c_4=0; if(s_603c_4++<3){std::printf("[U3-603C-4-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_088660B4:
     ctx.gpr[5] = (0u | 512u);
     ctx.gpr[31] = (0x088660C0u);
     ctx.gpr[4] = (17u << 16u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4568u, 0x089A0330u>(ctx, &aot_mem) && ctx.pc == 0x088660C0u) goto L_088660C0;
-    return;
+    { static unsigned s_603c_5=0; if(s_603c_5++<3){std::printf("[U3-603C-5-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_088660C0:
     { const bool branch_taken = 0u == 0u;
     // nop
@@ -8233,7 +8233,7 @@ L_088660C8:
     ctx.gpr[31] = (0x088660ECu);
     ctx.gpr[6] = (0u | 512u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4516u, 0x0899FCACu>(ctx, &aot_mem) && ctx.pc == 0x088660ECu) goto L_088660EC;
-    return;
+    { static unsigned s_C8_1=0; if(s_C8_1++<3){std::printf("[U3-C8-1-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_088660EC:
     ctx.gpr[6] = (4u << 16u);
     ctx.gpr[4] = (0u | 480u);
@@ -8242,30 +8242,30 @@ L_088660EC:
     ctx.gpr[31] = (0x08866104u);
     ctx.gpr[6] = (ctx.gpr[6] + static_cast<std::uint32_t>(16384));
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4563u, 0x089A026Cu>(ctx, &aot_mem) && ctx.pc == 0x08866104u) goto L_08866104;
-    return;
+    { static unsigned s_C8_2=0; if(s_C8_2++<3){std::printf("[U3-C8-2-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08866104:
     ctx.gpr[4] = (ctx.gpr[17] | 0u);
     ctx.gpr[31] = (0x08866110u);
     ctx.gpr[5] = (0u | 512u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4568u, 0x089A0330u>(ctx, &aot_mem) && ctx.pc == 0x08866110u) goto L_08866110;
-    return;
+    { static unsigned s_C8_3=0; if(s_C8_3++<3){std::printf("[U3-C8-3-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08866110:
     ctx.gpr[4] = (0u | 1808u);
     ctx.gpr[31] = (0x0886611Cu);
     ctx.gpr[5] = (0u | 1912u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4642u, 0x089A0BE4u>(ctx, &aot_mem) && ctx.pc == 0x0886611Cu) goto L_0886611C;
-    return;
+    { static unsigned s_C8_4=0; if(s_C8_4++<3){std::printf("[U3-C8-4-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_0886611C:
     ctx.gpr[31] = (0x08866124u);
     // nop
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4547u, 0x089A00D8u>(ctx, &aot_mem) && ctx.pc == 0x08866124u) goto L_08866124;
-    return;
+    { static unsigned s_C8_5=0; if(s_C8_5++<3){std::printf("[U3-C8-5-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08866124:
     ctx.gpr[4] = (0u | 0u);
     ctx.gpr[31] = (0x08866130u);
     ctx.gpr[5] = (0u | 0u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4554u, 0x089A0190u>(ctx, &aot_mem) && ctx.pc == 0x08866130u) goto L_08866130;
-    return;
+    { static unsigned s_C8_6=0; if(s_C8_6++<3){std::printf("[U3-C8-6-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08866130:
     ctx.gpr[4] = (ctx.gpr[16] + static_cast<std::uint32_t>(16));
     ctx.gpr[5] = (0u | 4u);
@@ -8274,7 +8274,7 @@ L_08866130:
     ctx.gpr[31] = (0x08866148u);
     ctx.gpr[8] = (0u | 4u);
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4788u, 0x089A2310u>(ctx, &aot_mem) && ctx.pc == 0x08866148u) goto L_08866148;
-    return;
+    { static unsigned s_C8_7=0; if(s_C8_7++<3){std::printf("[U3-C8-7-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08866148:
     ctx.gpr[16] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
     ctx.gpr[17] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(4)));
@@ -8826,6 +8826,7 @@ L_088665E4:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_088665F0:
+    { static unsigned s_u3e=0; if(s_u3e++<6){std::printf("[U3-665F0-ENTER] call#%u ra=0x%08X\n",s_u3e,ctx.gpr[31]);fflush(stdout);} }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-32));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(8), ctx.gpr[16]);
     ctx.gpr[16] = (ctx.gpr[4] | 0u);
@@ -8863,10 +8864,12 @@ L_08866650:
     ctx.gpr[4] = (ctx.gpr[5] | 0u);
     ctx.gpr[31] = (0x08866664u);
     ctx.gpr[5] = (0u | 128u);
+    { static unsigned s_8118e=0; if(s_8118e++<6){std::printf("[U3-PRE-8118] ra=0x%08X gpr4=0x%08X gpr5=0x%08X\n",ctx.gpr[31],ctx.gpr[4],ctx.gpr[5]);fflush(stdout);} }
     goto L_08882118;
 L_08866664:
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
     ctx.gpr[6] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(4)));
+    { static unsigned s_r=0; if(s_r++<8) std::printf("[RENDEROBJ-STORE] ptr=0x%08X val=0x%08X iter=%u\n",ctx.gpr[4],ctx.gpr[2],ctx.gpr[6]); fflush(stdout); }
     aot_mem.aot_store32(ctx.gpr[4] + static_cast<std::uint32_t>(0), ctx.gpr[2]);
     ctx.gpr[6] = (ctx.gpr[6] + static_cast<std::uint32_t>(1));
     ctx.gpr[5] = (6u << 16u);
@@ -8943,7 +8946,9 @@ L_08866728:
     ctx.gpr[4] = (ctx.gpr[4] + static_cast<std::uint32_t>(25108));
     ctx.gpr[31] = (0x0886673Cu);
     ctx.gpr[5] = (ctx.gpr[5] + static_cast<std::uint32_t>(25268));
+    { static unsigned s_u3a=0; if(s_u3a++<3){std::printf("[U3-665F0-A] calling 08940410 ra=0x%08X\n",ctx.gpr[31]);fflush(stdout);} }
     if (rt.invoke_chained_direct<&recomp_unit_0009_entry, 9u, 4655u, 0x08940410u>(ctx, &aot_mem) && ctx.pc == 0x0886673Cu) goto L_0886673C;
+    { static unsigned s_u3af=0; if(s_u3af++<3){std::printf("[U3-665F0-A-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} }
     return;
 L_0886673C:
     ctx.gpr[4] = (2182u << 16u);
@@ -8951,12 +8956,16 @@ L_0886673C:
     ctx.gpr[4] = (ctx.gpr[4] + static_cast<std::uint32_t>(25408));
     ctx.gpr[31] = (0x08866750u);
     ctx.gpr[5] = (ctx.gpr[5] + static_cast<std::uint32_t>(25568));
+    { static unsigned s_u3b=0; if(s_u3b++<3){std::printf("[U3-665F0-B] calling 089ABF88 ra=0x%08X\n",ctx.gpr[31]);fflush(stdout);} }
     if (rt.invoke_chained_direct<&recomp_unit_0013_entry, 13u, 1576u, 0x089ABF88u>(ctx, &aot_mem) && ctx.pc == 0x08866750u) goto L_08866750;
+    { static unsigned s_u3bf=0; if(s_u3bf++<3){std::printf("[U3-665F0-B-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} }
     return;
 L_08866750:
     ctx.gpr[31] = (0x08866758u);
     ctx.gpr[4] = (0u | 1u);
+    { static unsigned s_u3c=0; if(s_u3c++<3){std::printf("[U3-665F0-C] calling 089A01FC ra=0x%08X\n",ctx.gpr[31]);fflush(stdout);} }
     if (rt.invoke_chained_direct<&recomp_unit_0012_entry, 12u, 4558u, 0x089A01FCu>(ctx, &aot_mem) && ctx.pc == 0x08866758u) goto L_08866758;
+    { static unsigned s_u3cf=0; if(s_u3cf++<3){std::printf("[U3-665F0-C-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} }
     return;
 L_08866758:
     ctx.gpr[16] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(8)));
@@ -53718,7 +53727,7 @@ L_088820C0:
     ctx.gpr[4] = (ctx.gpr[4] + ctx.gpr[5]);
     jump_target = ctx.gpr[31];
     ctx.gpr[2] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(-9216)));
-    { static bool once=false; if(!once){once=true; std::printf("[820C0] alloc_ready=0x%08X (ptr=0x%08X)\n", ctx.gpr[2], ctx.gpr[4]); fflush(stdout);} }
+    { static unsigned s820c0=0; if(s820c0++<3){std::printf("[820C0] gpr31=0x%08X gpr2=0x%08X dat69a0=0x%08X\n",ctx.gpr[31],ctx.gpr[2],ctx.gpr[4]-0xed0000u); fflush(stdout);} }
     ctx.pc = jump_target;
     local_pc = jump_target;
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
@@ -53748,20 +53757,27 @@ L_0888210C:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_08882118:
-    ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
-    ctx.gpr[6] = (ctx.gpr[5] | 0u);
-    ctx.gpr[5] = (ctx.gpr[4] | 0u);
-    ctx.gpr[4] = (2205u << 16u);
-    ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(27040)));
-    ctx.gpr[8] = (237u << 16u);
-    ctx.gpr[4] = (ctx.gpr[4] + ctx.gpr[8]);
-    ctx.gpr[7] = (0u | 0u);
-    ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(-9212)));
-    ctx.gpr[8] = (0u | 1u);
-    aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[31]);
-    ctx.gpr[31] = (0x0888214Cu);
-    ctx.gpr[9] = (0u | 0u);
-    if (rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 3993u, 0x0885C6CCu>(ctx, &aot_mem) && ctx.pc == 0x0888214Cu) goto L_0888214C;
+    // HLE bump allocator replacing broken MIPS heap chain (FUN_0885C6CC never initialized)
+    { static unsigned s_enter=0; if(s_enter++<8){std::fprintf(stderr,"[L08882118-ENTER] gpr4=0x%X gpr5=0x%X ra=0x%08X\n",ctx.gpr[4],ctx.gpr[5],ctx.gpr[31]);fflush(stderr);} }
+    {
+        static std::uint32_t s_bump = 0x09800000u;
+        static constexpr std::uint32_t kBumpEnd = 0x09C00000u;
+        const std::uint32_t size  = ctx.gpr[4];
+        const std::uint32_t align = (ctx.gpr[5] > 0u) ? ctx.gpr[5] : 64u;
+        const std::uint32_t aligned = (s_bump + align - 1u) & ~(align - 1u);
+        static std::uint32_t s_n = 0u;
+        if (aligned + size <= kBumpEnd && rt.memory().contains(aligned, size)) {
+            s_bump = aligned + size;
+            if (++s_n <= 8u) std::fprintf(stderr,"[HLE-ALLOC-8118] size=0x%X align=0x%X -> 0x%08X\n", size, align, aligned);
+            ctx.gpr[2] = aligned;
+        } else {
+            if (++s_n <= 8u) std::fprintf(stderr,"[HLE-ALLOC-8118] OOM size=0x%X\n", size);
+            ctx.gpr[2] = 0u;
+        }
+    }
+    ctx.pc = ctx.gpr[31];
+    local_pc = ctx.gpr[31];
+    if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_0888214C:
     ctx.gpr[31] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
@@ -54122,7 +54138,7 @@ L_088823C4:
     ctx.gpr[31] = (0x08882404u);
     ctx.gpr[9] = (0u | 0u);
     if (rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 3993u, 0x0885C6CCu>(ctx, &aot_mem) && ctx.pc == 0x08882404u) goto L_08882404;
-    return;
+    { static unsigned s_823c4f=0; if(s_823c4f++<3){std::printf("[U3-823C4-FAIL] pc=0x%08X\n",ctx.pc);fflush(stdout);} } return;
 L_08882404:
     ctx.gpr[4] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(0)));
     ctx.gpr[5] = (aot_mem.aot_load32(ctx.gpr[29] + static_cast<std::uint32_t>(4)));
@@ -54357,16 +54373,19 @@ L_0888251C:
               goto L_08882538;
           }
           if (ok) {
-              // chain returned but pc is unexpected — task exited early; treat as done
+              // HLE returned with a mid-task pc (e.g. after sceDisplayWaitVblank).
+              // If pc is a valid PSP user-space address, keep dispatching the task.
+              if (ctx.pc >= 0x08800000u && ctx.pc < 0x09F00000u) {
+                  ++chain_iters;
+                  if (chain_iters <= 512) continue;
+              }
+              // pc is outside valid range — task truly exited unexpectedly.
               static std::uint32_t s_bad = 0u; ++s_bad;
               if (s_bad <= 5u || (s_bad & 0xFFFu) == 0u)
                   std::printf("[CHAIN-BAD#%u] fn=0x%08X pc=0x%08X after %d iters\n", s_bad, task_fn_saved, ctx.pc, chain_iters);
-              // Restore scheduler registers so the scheduler loop continues cleanly.
               ctx.gpr[16] = sched_gpr16_saved;
               ctx.gpr[17] = sched_gpr17_saved;
               ctx.gpr[18] = sched_gpr18_saved;
-              // Advance gpr[19] past the bad task so the loop doesn't re-dispatch it.
-              // task.next is at offset 52 (0x34). If next==0 try the head of the list.
               {
                   const std::uint32_t bad_task = sched_gpr19_saved;
                   std::uint32_t next_task = (bad_task != 0u) ? aot_mem.aot_load32(bad_task + 52u) : 0u;
@@ -54378,7 +54397,6 @@ L_0888251C:
               ctx.gpr[20] = sched_gpr20_saved;
               ctx.gpr[21] = sched_gpr21_saved;
               ctx.gpr[29] = sched_sp_saved;
-              // Exit the scheduler so the render thread can present and loop.
               ctx.gpr[19] = 0u;
               ctx.pc = 0x08882590u;
               goto L_08882590;

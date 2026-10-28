@@ -1,6 +1,6 @@
 ﻿# PSPRecomp — Dissidia 012 (ULES01505.BIN) — Current State
 
-**Last updated:** 27/10/2026 (Session 15)
+**Last updated:** 28/10/2026 (Session 16)
 
 **Goal:** Genuinely boot Dissidia 012's original startup path and visibly render the authentic Square Enix logo through guest asset I/O — guest VRAM — GE — the native window. A blank window, hard-coded logo, placeholder, or host overlay does not count.
 
@@ -223,6 +223,37 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`—`0x089C6040`). The gener
 - Activation requires: `FUN_0888B21C` — `FUN_08895FE4` — `FUN_088A2664` (iterates pending list) — `FUN_088A1E44` (activates scene, moves to `DAT_09B48358`).
 - None of the 8 running tasks call this chain. The render chain stays at gray node `0x08C15FD0` every frame.
 - **Next step**: identify which task/caller invokes `FUN_0888B21C`, ensure it runs, OR add ARCH-SYNTH to directly call `FUN_088A2664` once per frame.
+
+---
+
+### Session 16 findings (28/10/2026)
+
+**Result: the Square Enix splash has still NOT been displayed.** The window is black and shows "Not Responding".
+
+#### PortableKit build (`out/d012_pk`) — bugs found and fixed
+
+- The top-level driver loop in `generated_unit_0000.cpp` re-invoked `FUN_08933398` on every unwind, restarting init up to 512 times (the repeating `package_info.bin` opens). It now resumes at `ctx.pc`.
+- The "SPIN-BREAK" hack in `generated_unit_0009.cpp` fell out of the game's real `while(true)` main loop into the shutdown path. The real loop is restored.
+- `draw_line` in `ge_render.cpp` had no iteration limit on garbage coordinates (the "Not Responding" freeze); GE `END` (0x0C) now terminates a list; lists run at enqueue and the `sceGeSetCallback` finish callback fires.
+- Mislabeled earlier: `0x089C5AB8` is `sceDisplaySetMode`, and `GE_shutdown` runs every frame inside `DlStartTask`. `0x09B48358`/`0x09B4CF98` are screen-shake/effect lists, not scenes.
+- `FUN_088635EC` (resource path formatter, reachable only through a vtable) was missing from the AOT output; a host handler was added.
+- Still unresolved on this path: `sceDisplaySetFrameBuf` is called once, the buffer swap (`FUN_0899FBE4`) never runs, `DlStartTask` stays in state 0, and the GE lists contain only init commands followed by uninitialised memory.
+
+#### New attempt: D012 through 3rd Birthday's pipeline (`<WORKSPACE>/d012-recomp`)
+
+- Control test: 3rd Birthday builds and boots on this machine from its own prepare flow (its EUR undub ISO was accepted), so the toolchain and runtime are sound.
+- ISO is the single source: `eboot_decrypt` decrypts `EBOOT.BIN` straight from `Dissidia_012_EUR_FULL_UNDUB.iso` (inside the ISO it is encrypted; `BOOT.BIN` is a zero dummy). It differs from the previously used ELF by 2 bytes.
+- `codegen.py` read the import table only for relocated PRX files. D012 is a fixed-address EXEC, so all 296 import stubs compiled to `jr ra; nop` and every syscall silently did nothing. Fixed; this was the reason the first runs made no syscalls.
+- `prxload.py` rebased the EXEC as if it were a PRX (wrong image); the entry is `module_start` `0x08804040` (header entry is 0); `$gp` is `0x08B6B260` (3rd's script sets 0).
+- 77 imports had no handler (`hle_d012.c`). My own bug there: `sceKernelGetMemoryBlockAddr` takes an out pointer; returning the address made the game copy into its own vtable (caught with `SR_WATCH`).
+- Three overlays (`OVL_MENU_APP`, `OVL_BATTLE_APP`, `OVL_EXTRA_APP`, flat images at `0x089DD4C0`, swapped at runtime) are now recompiled with per-overlay prefixes, a direct-mapped overlay table in the runtime, and activation on `sceKernelIcacheInvalidateRange` matched by an FNV signature. Entry points are seeded from the main EBOOT's pointer tables and `jal` targets.
+- VFPU ops added: `vsgn`, `vfad`, `vavg`, `vlog2`, `vasin`, `vrexp2` (25 trapping functions down to 11). Functions that branch outside themselves (data decoded as code) become trapping stubs.
+
+#### Current state and next step
+
+- The game now runs its real startup: both threads, GE init lists, `LIBFONT.PRX`/`LIBSUPPREACC.PRX`, the savedata check, audio, and `overlay 0 loaded`.
+- Then one thread loops on semaphore `0x11f` (a mutex pattern, 4,000+ waits in 25 s) without ever waiting for vblank, so the scheduler never pumps the window: black screen, "Not Responding".
+- Next: identify the spinning function (`SR_PCPROBE`), implement the remaining VFPU group (`VFPU4 jump 0x01`, `VFPU9 op 0x02`), then carry whatever works back to the D012 PortableKit toolkit as requested.
 
 ---
 

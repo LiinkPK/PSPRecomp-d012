@@ -263,6 +263,7 @@ static void draw_sprite(const GeState &gs, const Vertex &v0, const Vertex &v1,
     // Clip to scissor
     x0 = std::max(x0, gs.sc_x1); y0 = std::max(y0, gs.sc_y1);
     x1 = std::min(x1, gs.sc_x2); y1 = std::min(y1, gs.sc_y2);
+    x0 = std::max(x0, 0); y0 = std::max(y0, 0); x1 = std::min(x1, 512); y1 = std::min(y1, 272);
     if (x0 >= x1 || y0 >= y1) return;
 
     const float du = (gs.tex_enabled && x1 > x0)
@@ -320,6 +321,7 @@ static void draw_triangle(const GeState &gs,
     int maxx = std::min(gs.sc_x2, (int)std::max({v0.x, v1.x, v2.x}) + 1);
     int miny = std::max(gs.sc_y1, (int)std::min({v0.y, v1.y, v2.y}));
     int maxy = std::min(gs.sc_y2, (int)std::max({v0.y, v1.y, v2.y}) + 1);
+    minx = std::max(minx, 0); miny = std::max(miny, 0); maxx = std::min(maxx, 512); maxy = std::min(maxy, 272);
     if (minx >= maxx || miny >= maxy) return;
 
     const float denom = (v1.y - v2.y) * (v0.x - v2.x) + (v2.x - v1.x) * (v0.y - v2.y);
@@ -386,6 +388,7 @@ static void draw_line(const GeState &gs, const Vertex &v0, const Vertex &v1,
     const int bpp = (gs.fbfmt == 3) ? 4 : 2;
     const std::size_t row_bytes = static_cast<std::size_t>(gs.fbw) * bpp;
 
+    if (std::abs(static_cast<long long>(x1) - x0) > 2048 || std::abs(static_cast<long long>(y1) - y0) > 2048) return;
     const int dx = std::abs(x1 - x0), sx = (x0 < x1) ? 1 : -1;
     const int dy = -std::abs(y1 - y0), sy = (y0 < y1) ? 1 : -1;
     int err = dx + dy;
@@ -513,7 +516,7 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
         case 0x09: break; // BJUMP — conditional branch (ignore, treat as not-taken)
         case 0x0A: break; // CALL — subroutine call (stub: ignore for now)
         case 0x0B: break; // RET — return from subroutine (stub: ignore)
-        case 0x0C: break; // END — marks end but FINISH(0x0F) does the actual stop
+        case 0x0C: goto done; // END terminates the list
         case 0x0E: break; // SIGNAL — ignore
         case 0x0F:        // FINISH — end of list
             goto done;
@@ -521,8 +524,8 @@ void ge_exec(const std::uint32_t *dl, const std::uint32_t *dl_end,
         // Address/BASE — BASE supplies the four high bits; OFFSETADDR is added on top.
         // These must be kept separate: letting OFFSETADDR overwrite BASE corrupts all
         // subsequent vertex/index/texture address resolution (PortableKit ge_state.cpp).
-        case 0x10: // BASE
-            gs.base_extended = (arg & 0x000F0000u) << 8u;
+        case 0x10: // BASE — bits 23:20 of arg are bits 27:24 of physical address
+            gs.base_extended = (arg & 0x00F00000u) << 4u;
             gs.base_addr     = gs.base_extended | gs.offset_address;
             { static std::uint32_t s_base_log = 0;
               if (++s_base_log <= 10) {

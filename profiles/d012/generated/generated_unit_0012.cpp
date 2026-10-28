@@ -29489,6 +29489,16 @@ L_08993234:
     return;
 L_08993244:
     { static unsigned s_u12e=0; if(s_u12e++<4){std::printf("[U12-ENTRY] L_08993244 ra=0x%08X\n",ctx.gpr[31]);fflush(stdout);} }
+    // Guard: init loop must only run once; if called again return immediately (scheduler re-dispatch)
+    { static bool s_init_done = false;
+      if (s_init_done) {
+          std::printf("[U12-GUARD] init loop re-entry blocked, returning to 0x%08X\n", ctx.gpr[31]); fflush(stdout);
+          ctx.gpr[2] = 0u;
+          ctx.pc = ctx.gpr[31];
+          return;
+      }
+      s_init_done = true;
+    }
     ctx.gpr[29] = (ctx.gpr[29] + static_cast<std::uint32_t>(-16));
     aot_mem.aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(0), ctx.gpr[31]);
     ctx.gpr[31] = (0x08993254u);
@@ -50290,6 +50300,11 @@ L_0899FBD4:
     jump_target = ctx.gpr[2];
     ctx.gpr[31] = (0x0899FBDCu);
     // nop
+    // DAT_09af6d28 callback: guard invalid targets
+    if (jump_target < 0x08800000u || jump_target >= 0x09F00000u) {
+        std::printf("[SKIP-CB] 0899FBD4 invalid callback target=0x%08X, skipping\n", jump_target); fflush(stdout);
+        goto L_0899FBDC;
+    }
     ctx.pc = jump_target;
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0899FBDCu) goto L_0899FBDC;
     return;
@@ -50366,6 +50381,11 @@ L_0899FC5C:
     jump_target = ctx.gpr[2];
     ctx.gpr[31] = (0x0899FC68u);
     ctx.gpr[6] = (aot_mem.aot_load32(ctx.gpr[16] + static_cast<std::uint32_t>(40)));
+    // DAT_09af6d24 callback: guard invalid targets
+    if (jump_target < 0x08800000u || jump_target >= 0x09F00000u) {
+        std::printf("[SKIP-CB] 0899FC5C invalid callback target=0x%08X, skipping\n", jump_target); fflush(stdout);
+        goto L_0899FC68;
+    }
     ctx.pc = jump_target;
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0899FC68u) goto L_0899FC68;
     return;
@@ -50376,6 +50396,11 @@ L_0899FC70:
     jump_target = ctx.gpr[2];
     ctx.gpr[31] = (0x0899FC78u);
     // nop
+    // DAT_09af6d20 callback: guard invalid targets
+    if (jump_target < 0x08800000u || jump_target >= 0x09F00000u) {
+        std::printf("[SKIP-CB] 0899FC70 invalid callback target=0x%08X, skipping\n", jump_target); fflush(stdout);
+        goto L_0899FC78;
+    }
     ctx.pc = jump_target;
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0899FC78u) goto L_0899FC78;
     return;
@@ -50397,6 +50422,11 @@ L_0899FC9C:
     jump_target = ctx.gpr[3];
     ctx.gpr[31] = (0x0899FCA4u);
     // nop
+    // DAT_09af6d20 callback: guard invalid targets
+    if (jump_target < 0x08800000u || jump_target >= 0x09F00000u) {
+        std::printf("[SKIP-CB] 0899FC9C invalid callback target=0x%08X, skipping\n", jump_target); fflush(stdout);
+        goto L_0899FCA4;
+    }
     ctx.pc = jump_target;
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0899FCA4u) goto L_0899FCA4;
     return;
@@ -50512,6 +50542,11 @@ L_0899FDB4:
     jump_target = ctx.gpr[2];
     ctx.gpr[31] = (0x0899FDBCu);
     // nop
+    // DAT_09af6d2c callback: if target is not a valid recompiled address, skip safely
+    if (jump_target < 0x08800000u || jump_target >= 0x09F00000u) {
+        std::printf("[SKIP-CB] 0899FDB4 invalid callback target=0x%08X, skipping\n", jump_target); fflush(stdout);
+        goto L_0899FDBC;
+    }
     ctx.pc = jump_target;
     if (rt.invoke_chained_call(ctx, &aot_mem) && ctx.pc == 0x0899FDBCu) goto L_0899FDBC;
     return;

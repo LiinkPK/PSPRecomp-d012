@@ -6032,9 +6032,17 @@ L_08804248:
     // sceDisplaySetFrameBuf each frame. L_08934300's frame-wait SYSCALL is now
     // a no-op, so the loop runs naturally without breaking out.
     ctx.pc = 0x08933398u;
-    if (rt.invoke_chained_direct<&recomp_unit_0009_entry, 9u, 2109u, 0x08933398u>(ctx, &aot_mem) && ctx.pc == 0x08804254u) goto L_08804254;
-    std::printf("[DBG] render invoke failed ctx.pc=0x%08X\n", ctx.pc); fflush(stdout);
-    return;
+    { int _iters = 0; bool _first = true;
+      while (true) {
+          bool _ok = _first ? rt.invoke_chained_direct<&recomp_unit_0009_entry, 9u, 2109u, 0x08933398u>(ctx, &aot_mem)
+                            : rt.invoke_chained_call(ctx, &aot_mem);
+          _first = false;
+          if (_ok && ctx.pc == 0x08804254u) goto L_08804254;
+          if (_ok && ctx.pc >= 0x08800000u && ctx.pc < 0x09F00000u && ++_iters < 512) continue;
+          std::printf("[DBG] render invoke failed ctx.pc=0x%08X iters=%d\n", ctx.pc, _iters); fflush(stdout);
+          return;
+      }
+    }
 L_08804254:
     ctx.gpr[3] = (0u << 16u);
     ctx.gpr[20] = (ctx.gpr[3] + static_cast<std::uint32_t>(0));

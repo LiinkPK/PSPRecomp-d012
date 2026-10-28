@@ -131,10 +131,62 @@ static std::uint32_t s_display_frame_count = 0u;
 static std::uint32_t s_gu_wp   = 0u;  // guest VA of next GE write slot
 static std::uint32_t s_gu_base = 0u;  // list base VA
 
+// sceUtilitySavedata state
+static std::uint32_t s_sdp_addr = 0u;
+static int s_sd_state = 0;
+
+// GE callback slot array (ported from 3rd Birthday h_GeSetCallback)
+struct GeCallback { int used; std::uint32_t signal_func, signal_arg, finish_func, finish_arg; };
+static GeCallback s_ge_cb[16] = {};
+static std::uint32_t s_ge_list_next = 1u;
+
 static void gu_emit(psprecomp::Runtime &rt2, std::uint32_t cmd) {
     if (s_gu_wp == 0u || !rt2.memory().contains(s_gu_wp, 4u)) return;
     rt2.memory().store32(s_gu_wp, cmd);
     s_gu_wp += 4u;
+}
+
+static bool present_and_pump(psprecomp::Runtime &rt2) {
+    const auto &vram = rt2.memory().vram_bytes();
+    const std::uint32_t vram_off = d012::g_ge_last_fbp & 0x1FFFFFu;
+    const int fmt = g_display_fb.fmt;
+    const std::size_t stride = g_display_fb.stride > 0u ? g_display_fb.stride : 512u;
+    const std::size_t fb_bytes = stride * 272u * (fmt == 3 ? 4u : 2u);
+    const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size()) ? vram.data() + vram_off : vram.data();
+    d012::display_present(fb_ptr, static_cast<int>(stride), fmt);
+    return d012::display_pump();
+}
+
+// Run a submitted GE list right now (the game may reuse its memory before vblank).
+static void run_ge_list_now(psprecomp::Runtime &rt2, std::uint32_t list_phys, std::uint32_t stall_phys) {
+    if (list_phys == 0u || !rt2.memory().contains(list_phys, 4u)) return;
+    void *vram_ptr = rt2.memory().raw_pointer(0x04000000u, 0x200000u);
+    const void *dl_raw = rt2.memory().raw_pointer(list_phys, 4u);
+    if (!vram_ptr || !dl_raw) return;
+    const auto *dl = reinterpret_cast<const std::uint32_t *>(dl_raw);
+    const std::size_t span = (stall_phys > list_phys && stall_phys - list_phys < 0x100000u)
+                           ? (stall_phys - list_phys) / 4u : 0x10000u;
+    const auto &mem_vec = rt2.memory().bytes();
+    d012::ge_exec(dl, dl + span, vram_ptr, 0x200000u, mem_vec.data(), mem_vec.size(), 0x08000000u);
+}
+
+// Call a guest function from an HLE handler and restore the caller's registers.
+static void call_guest(psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx,
+                       std::uint32_t fn, std::uint32_t a0, std::uint32_t a1, std::uint32_t a2) {
+    if (fn == 0u) return;
+    const psprecomp::AllegrexContext saved = ctx;
+    ctx.gpr[4] = a0; ctx.gpr[5] = a1; ctx.gpr[6] = a2;
+    ctx.gpr[31] = 2u;
+    ctx.pc = fn;
+    (void)rt2.invoke_chained_call(ctx);
+    ctx = saved;
+}
+
+static void ge_finish_callback(psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx,
+                               std::uint32_t cbid, std::uint32_t list_id, std::uint32_t user_arg) {
+    if (cbid >= 16u || !s_ge_cb[cbid].used || s_ge_cb[cbid].finish_func == 0u) return;
+    call_guest(rt2, ctx, s_ge_cb[cbid].finish_func, list_id,
+               s_ge_cb[cbid].finish_arg ? s_ge_cb[cbid].finish_arg : user_arg, cbid);
 }
 
 // Single raw-function-pointer registered for every discovered syscall stub.
@@ -201,30 +253,29 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
                         return;
                     }
                 }
-                // Lazy-load disc.iso and look up PACKAGE.BIN inside it
+                // Lazy-load disc image: PSP_ISO env var first, then disc.iso candidates
                 if (!s_disc_iso) {
-                    // Search candidate locations for disc.iso
                     std::vector<std::filesystem::path> candidates;
-                    // 1. game_root (translate_path base)
+                    if (const char *iso_env = std::getenv("PSP_ISO"))
+                        candidates.push_back(std::filesystem::path(iso_env));
                     try { candidates.push_back(rt.translate_path("disc.iso")); } catch (...) {}
-                    // 2. D012_GAME_PATH env var
                     if (const char *gp = std::getenv("D012_GAME_PATH")) {
                         candidates.push_back(std::filesystem::path(gp) / "disc.iso");
                         candidates.push_back(std::filesystem::path(gp) / "D012" / "disc.iso");
                     }
-                    // 3. g_game_root (same as translate_path but explicit)
                     if (!g_game_root.empty())
                         candidates.push_back(std::filesystem::path(g_game_root) / "disc.iso");
                     for (const auto &disc_path : candidates) {
-                        std::printf("[PKG-ISO] trying '%s' exists=%d\n",
-                            disc_path.string().c_str(), (int)std::filesystem::exists(disc_path));
-                        std::fflush(stdout);
                         if (std::filesystem::exists(disc_path)) {
                             try { s_disc_iso = std::make_shared<portablekit::IsoImage>(disc_path); }
                             catch (const std::exception &e) {
-                                std::printf("[PKG-ISO] open failed: %s\n", e.what()); std::fflush(stdout);
+                                std::printf("[ISO] open failed: %s\n", e.what()); std::fflush(stdout);
                             }
-                            if (s_disc_iso) break;
+                            if (s_disc_iso) {
+                                std::printf("[ISO] loaded '%s'\n", disc_path.string().c_str());
+                                std::fflush(stdout);
+                                break;
+                            }
                         }
                     }
                 }
@@ -250,19 +301,84 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
                     }
                 }
             }
-            // "ss" = Square Enix startup screen inside package.bin — return empty file
-            // so the resource manager gets a valid handle and reads zero bytes (splash skipped)
-            const bool is_ss = pp == "data/ss" || pp == "ss";
-            if (is_ss && !(flags & 2u)) {
-                FILE *fp2 = std::tmpfile();
-                if (fp2) {
+            // package_info.bin: serve directly from D012_GAME_PATH/data/
+            const bool is_pkg_info = pp == "data/package_info.bin" || pp == "data/PACKAGE_INFO.BIN" ||
+                (pp.size() >= 16 && (pp.substr(pp.size()-16) == "package_info.bin" || pp.substr(pp.size()-16) == "PACKAGE_INFO.BIN"));
+            if (is_pkg_info && !(flags & 2u)) {
+                const char *gp = std::getenv("D012_GAME_PATH");
+                if (gp && std::strlen(gp) > 0) {
+                    const std::string info_path = std::string(gp) + "/data/PACKAGE_INFO.BIN";
+                    const std::string info_path2 = std::string(gp) + "/data/package_info.bin";
+                    FILE *fp2 = std::fopen(info_path.c_str(), "rb");
+                    if (!fp2) fp2 = std::fopen(info_path2.c_str(), "rb");
+                    if (fp2) {
+                        const std::uint32_t fd2 = s_next_fd++;
+                        s_fds[fd2] = {fp2, psp_path};
+                        std::printf("[IO] sceIoOpen: \"%s\" -> fd=%u (D012_GAME_PATH/data/PACKAGE_INFO.BIN)\n", psp_path.c_str(), fd2);
+                        ctx.gpr[2] = fd2;
+                        ctx.pc = ctx.gpr[31];
+                        return;
+                    }
+                }
+            }
+        }
+        // Lazy-load ISO for any read-only open (PSP_ISO env var)
+        if (!(flags & 2u) && !s_disc_iso) {
+            std::vector<std::filesystem::path> iso_candidates;
+            if (const char *iso_env = std::getenv("PSP_ISO"))
+                iso_candidates.push_back(std::filesystem::path(iso_env));
+            if (const char *gp = std::getenv("D012_GAME_PATH")) {
+                iso_candidates.push_back(std::filesystem::path(gp) / "disc.iso");
+                iso_candidates.push_back(std::filesystem::path(gp) / "D012" / "disc.iso");
+            }
+            if (!g_game_root.empty())
+                iso_candidates.push_back(std::filesystem::path(g_game_root) / "disc.iso");
+            for (const auto &disc_path : iso_candidates) {
+                if (std::filesystem::exists(disc_path)) {
+                    try { s_disc_iso = std::make_shared<portablekit::IsoImage>(disc_path); }
+                    catch (const std::exception &e) {
+                        std::printf("[ISO] open failed: %s\n", e.what()); std::fflush(stdout);
+                    }
+                    if (s_disc_iso) { std::printf("[ISO] loaded '%s'\n", disc_path.string().c_str()); std::fflush(stdout); break; }
+                }
+            }
+        }
+        // For read-only opens: try the disc ISO before the host filesystem
+        if (!(flags & 2u) && s_disc_iso) {
+            // Normalise path: strip leading "disc0:/PSP_GAME/USRDIR/" or "data/" prefix
+            auto try_disc = [&](const std::string &rel) -> bool {
+                if (const auto entry = s_disc_iso->find(rel); entry && !entry->directory) {
                     const std::uint32_t fd2 = s_next_fd++;
-                    s_fds[fd2] = {fp2, psp_path};
-                    std::printf("[IO] sceIoOpen: \"%s\" -> fd=%u (empty stub, splash skipped)\n", psp_path.c_str(), fd2);
+                    HostFd hfd{};
+                    hfd.path        = psp_path;
+                    hfd.disc_iso    = s_disc_iso;
+                    hfd.disc_offset = static_cast<std::uint64_t>(entry->lba) * portablekit::IsoImage::kSectorSize;
+                    hfd.disc_size   = entry->size;
+                    hfd.disc_pos    = 0u;
+                    hfd.fp          = nullptr;
+                    s_fds[fd2] = std::move(hfd);
+                    std::printf("[IO] sceIoOpen: \"%s\" -> fd=%u (ISO size=%llu)\n",
+                        psp_path.c_str(), fd2, (unsigned long long)entry->size);
                     ctx.gpr[2] = fd2;
                     ctx.pc = ctx.gpr[31];
-                    return;
+                    return true;
                 }
+                return false;
+            };
+            const std::string &pp2 = psp_path;
+            // Try "PSP_GAME/USRDIR/<path>" and "<path>" directly
+            if (try_disc("PSP_GAME/USRDIR/" + pp2)) return;
+            if (try_disc(pp2)) return;
+            // Strip disc0:/PSP_GAME/USRDIR/ prefix if present
+            auto strip = [](const std::string &s, const char *pfx) -> std::string {
+                std::size_t n = std::strlen(pfx);
+                return (s.size() > n && s.substr(0, n) == pfx) ? s.substr(n) : s;
+            };
+            std::string bare = strip(pp2, "disc0:/PSP_GAME/USRDIR/");
+            bare = strip(bare, "disc0:/");
+            if (bare != pp2) {
+                if (try_disc("PSP_GAME/USRDIR/" + bare)) return;
+                if (try_disc(bare)) return;
             }
         }
         FILE *fp = std::fopen(host_path.c_str(), mode);
@@ -394,7 +510,7 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         {
             const auto &vram = rt.memory().vram_bytes();
             const std::uint32_t vram_off = g_display_fb.vaddr & 0x1FFFFFu;
-            const int fmt = d012::g_ge_last_fbfmt;
+            const int fmt = g_display_fb.fmt;
             const std::size_t stride = d012::g_ge_last_fbw > 0 ? d012::g_ge_last_fbw
                                      : (g_display_fb.stride > 0 ? g_display_fb.stride : 512u);
             const std::size_t bpp = fmt == 3 ? 4u : 2u;
@@ -429,7 +545,7 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         {
             const auto &vram = rt.memory().vram_bytes();
             const std::uint32_t vram_off = g_display_fb.vaddr & 0x1FFFFFu;
-            const int fmt = d012::g_ge_last_fbfmt;
+            const int fmt = g_display_fb.fmt;
             const std::size_t stride = d012::g_ge_last_fbw > 0 ? d012::g_ge_last_fbw
                                      : (g_display_fb.stride > 0 ? g_display_fb.stride : 512u);
             const std::size_t bpp = fmt == 3 ? 4u : 2u;
@@ -445,11 +561,28 @@ void scan_and_register_stubs(psprecomp::Runtime &rt, const psprecomp::Elf32Image
     s_handlers[0x089C5AD8u] = vblank_present;
     s_handlers[0x089C5AD0u] = vblank_present;
     s_handlers[0x089C5AC8u] = vblank_present;
-    // sceDisplayGetFrameBuf -> returns current framebuf
-    s_handlers[0x089C5AB8u] = [](psprecomp::Runtime &rt, psprecomp::AllegrexContext &ctx) {
-        const std::uint32_t ptr = ctx.gpr[4];
-        if (ptr && rt.memory().contains(ptr, 4u))
-            rt.memory().store32(ptr, s_framebuf.vaddr);
+    // sceCtrlReadBufferPositive — must be in s_handlers so generic_stub overrides the
+    // generated stub and invoke_chained_call can find it (lookup_function_override path).
+    s_handlers[0x089C5AA8u] = [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        static std::uint32_t s_ctrl_frame = 0u;
+        ++s_ctrl_frame;
+        const bool inject_start = (s_ctrl_frame >= 60u && s_ctrl_frame <= 180u);
+        const std::uint32_t buttons = inject_start ? 0x0008u : 0u;
+        const std::uint32_t buf = ctx.gpr[4];
+        const std::uint32_t count = ctx.gpr[5];
+        for (std::uint32_t i = 0u; i < count && i < 64u; ++i) {
+            const std::uint32_t entry = buf + i * 12u;
+            if (rt2.memory().contains(entry, 12u)) {
+                rt2.memory().store32(entry,      0u);
+                rt2.memory().store32(entry + 4u, buttons);
+                rt2.memory().store32(entry + 8u, 0x00808000u);
+            }
+        }
+        ctx.gpr[2] = count;
+        ctx.pc = ctx.gpr[31];
+    };
+    // 0x089C5AB8 = sceDisplaySetMode(mode, width, height)
+    s_handlers[0x089C5AB8u] = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
         ctx.gpr[2] = 0u;
         ctx.pc = ctx.gpr[31];
     };
@@ -519,6 +652,44 @@ void set_runtime(psprecomp::Runtime &rt) {
 
 void register_hle(psprecomp::Runtime &rt) {
     s_runtime_ptr = &rt;
+    std::thread([&rt]() {
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(3));
+            std::printf("[WATCHDOG] cpu.pc=0x%08X dispatch_pc=0x%08X ra=0x%08X sp=0x%08X\n",
+                        rt.cpu().pc, psprecomp::runtime_dispatch_pc(), rt.cpu().gpr[31], rt.cpu().gpr[29]);
+            {
+                const auto &v = rt.memory().vram_bytes();
+                const std::size_t off = g_display_fb.vaddr & 0x1FFFFFu;
+                std::size_t nz = 0;
+                for (std::size_t i = 0; i < 512u * 272u * 2u && off + i < v.size(); ++i) nz += v[off + i] != 0;
+                std::printf("[WATCHDOG] display fb 0x%08X fmt=%d nonzero bytes=%zu\n", g_display_fb.vaddr, g_display_fb.fmt, nz);
+                {
+                    std::size_t blk[8] = {};
+                    for (std::size_t i = 0; i < v.size() && i < 0x200000u; ++i) blk[i >> 18] += v[i] != 0;
+                    std::printf("[WATCHDOG] vram nonzero per 256KB: %zu %zu %zu %zu %zu %zu %zu %zu\n",
+                                blk[0], blk[1], blk[2], blk[3], blk[4], blk[5], blk[6], blk[7]);
+                }
+                if (const char *tmp = std::getenv("TEMP")) {
+                    const std::size_t offs[2] = { d012::g_ge_last_fbp & 0x1FFFFFu, 0u };
+                    for (int k = 0; k < 2; ++k) {
+                        const std::string path = std::string(tmp) + "\\d012_fb" + std::to_string(k) + ".bin";
+                        if (FILE *fp = std::fopen(path.c_str(), "wb")) {
+                            if (offs[k] + 512u * 272u * 2u <= v.size()) std::fwrite(v.data() + offs[k], 1, 512u * 272u * 2u, fp);
+                            std::fclose(fp);
+                        }
+                    }
+                }
+                std::printf("[WATCHDOG] scene pending(09B4CF98)=0x%08X active(09B48358)=0x%08X rendergate(089D69DC)=%u\n",
+                    rt.memory().aot_load32(0x09B4CF98u), rt.memory().aot_load32(0x09B48358u), rt.memory().aot_load32(0x089D69DCu));
+                const std::uint32_t gp = rt.memory().aot_load32(0x089D5EC0u);
+                std::printf("[WATCHDOG] DISPFLAG(09AF67F0)=%u ctxinit(09AF67E8)=%u gfx=0x%08X state2cd0=%u drawbuf(09AF6818)=0x%X dispbuf(09AF6814)=0x%X\n",
+                    rt.memory().aot_load32(0x09AF67F0u), rt.memory().aot_load32(0x09AF67E8u), gp,
+                    gp ? rt.memory().aot_load32(gp + 0x2cd0u) & 0xFFu : 99u,
+                    rt.memory().aot_load32(0x09AF6818u), rt.memory().aot_load32(0x09AF6814u));
+            }
+            std::fflush(stdout);
+        }
+    }).detach();
     psprecomp::g_runtime_starvation_interval_fast = 0u;
     // NOTE: 0x08800000 is PortableKit's kThreadExitStub (kernel().thread_exit_stub).
     // Do NOT register anything at this address — PortableKit owns it for cooperative
@@ -555,6 +726,18 @@ void register_hle(psprecomp::Runtime &rt) {
     // PortableKit provides real sceKernelTerminateThread, sceKernelAllocPartitionMemory,
     // sceKernelGetBlockHeadAddr, and sceKernelFreePartitionMemory. Overriding them with
     // stubs breaks memory management and thread handling.
+
+    // FUN_088635ec is missing from AOT output (only reachable via vtable): sprintf path, then FUN_08935d58.
+    rt.register_function(0x088635ECu, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        const std::uint32_t ra = ctx.gpr[31], sp = ctx.gpr[29], s0 = ctx.gpr[16];
+        const std::uint32_t out = ctx.gpr[5];
+        ctx.gpr[4] = out; ctx.gpr[5] = 0x089C9168u; ctx.gpr[31] = 2u; ctx.pc = 0x0893476Cu;
+        (void)rt2.invoke_chained_call(ctx);
+        ctx.gpr[4] = out; ctx.gpr[31] = 2u; ctx.pc = 0x08935D58u;
+        (void)rt2.invoke_chained_call(ctx);
+        ctx.gpr[31] = ra; ctx.gpr[29] = sp; ctx.gpr[16] = s0;
+        ctx.pc = ra;
+    }, "hle_088635EC");
 
 // The game loads LIBFONT.PRX into heap via PortableKit's sceKernelStartModule.
 // The PRX entry lands at 0x09AE7070 (seen in logs). invoke_chained_call returns
@@ -593,10 +776,9 @@ void register_hle(psprecomp::Runtime &rt) {
         }
         if (d012::g_ge_last_fbw > 0u || g_display_fb.stride > 0u) {
             const auto &vram = rt2.memory().vram_bytes();
-            const std::uint32_t vram_off = d012::g_ge_last_fbp & 0x1FFFFFu;
-            const int fmt = d012::g_ge_last_fbfmt;
-            const std::size_t stride = d012::g_ge_last_fbw > 0u ? d012::g_ge_last_fbw
-                                     : (g_display_fb.stride > 0u ? g_display_fb.stride : 512u);
+            const std::uint32_t vram_off = g_display_fb.vaddr & 0x1FFFFFu;
+            const int fmt = g_display_fb.fmt;
+            const std::size_t stride = g_display_fb.stride > 0u ? g_display_fb.stride : 512u;
             const std::size_t bpp = fmt == 3 ? 4u : 2u;
             const std::size_t fb_bytes = stride * 272u * bpp;
             const std::uint8_t *fb_ptr = (vram_off + fb_bytes <= vram.size())
@@ -665,18 +847,12 @@ void register_hle(psprecomp::Runtime &rt) {
           }
         }
 
-        // Yield at vblank — let loading/audio threads run
-        if (s_live_threads.size() > 1u) rt2.stop("yield");
     };
     // Wire frame_present_fn to all sceDisplayWaitVblank* stubs so any path through them presents
     rt.register_function(0x089C5AD8u, frame_present_fn, "sceDisplayWaitVblankStart");
     rt.register_function(0x089C5AD0u, frame_present_fn, "sceDisplayWaitVblankStartCB");
     rt.register_function(0x089C5AC8u, frame_present_fn, "sceDisplayWaitVblank");
-    // 0x089C5AA8 is the scene manager's per-frame vblank yield (sceDisplayWaitVblankStartMulti
-    // or similar). Unit 14 is poisoned by other HLE overrides so invoke_chained_direct fails;
-    // register an explicit override so lookup_function_override() finds it and the scene
-    // manager's render path runs every frame.
-    rt.register_function(0x089C5AA8u, frame_present_fn, "sceDisplayWaitVblankMulti");
+    // sceCtrlReadBufferPositive is now in s_handlers (registered via generic_stub above)
 
 // Explicit HLE for CreateThread / StartThread wrapper addresses
 
@@ -722,6 +898,7 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_changethreadattr");
 
+#if 0 // stubs replaced by PortableKit's real blocking kernel
     // sceKernelDelayThread(us) -> 0; yield to other threads
     rt.register_function(0x089C5F68u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         ctx.gpr[2] = 0u;
@@ -772,6 +949,7 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_waitthreadend");
+#endif
 
 
     rt.register_function(0x089C5FD0u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
@@ -802,6 +980,7 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_startthread");
 
+#if 0 // event flag stubs replaced by PortableKit
     // sceKernelCreateEventFlag(name, attr, bits, opt) -> uid
     rt.register_function(0x089C5FE0u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
         static std::uint32_t s_next_evf = 0x300u;
@@ -816,6 +995,7 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_deleteeventflag");
+#endif
 
     // sceKernelRegisterExitCallback(uid) -> 0
     rt.register_function(0x089C5EF8u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
@@ -840,14 +1020,30 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_geedramgetsize");
 
-    // sceGeSetCallback(cb) -> id (non-negative)
-    rt.register_function(0x089C5A70u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-        ctx.gpr[2] = 1u;
+    // sceGeSetCallback(cb_struct_ptr) -> slot index (ported from 3rd Birthday h_GeSetCallback)
+    rt.register_function(0x089C5A70u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        const std::uint32_t info = ctx.gpr[4];
+        for (std::uint32_t i = 0u; i < 16u; ++i) {
+            if (!s_ge_cb[i].used) {
+                s_ge_cb[i].used = 1;
+                s_ge_cb[i].signal_func = (info && rt2.memory().contains(info,     4u)) ? rt2.memory().load32(info)      : 0u;
+                s_ge_cb[i].signal_arg  = (info && rt2.memory().contains(info + 4u, 4u)) ? rt2.memory().load32(info + 4u)  : 0u;
+                s_ge_cb[i].finish_func = (info && rt2.memory().contains(info + 8u, 4u)) ? rt2.memory().load32(info + 8u)  : 0u;
+                s_ge_cb[i].finish_arg  = (info && rt2.memory().contains(info +12u, 4u)) ? rt2.memory().load32(info + 12u) : 0u;
+                std::printf("[GE-SETCB] slot=%u sig=0x%08X fin=0x%08X\n", i, s_ge_cb[i].signal_func, s_ge_cb[i].finish_func);
+                ctx.gpr[2] = i;
+                ctx.pc     = ctx.gpr[31];
+                return;
+            }
+        }
+        ctx.gpr[2] = 0xFFFFFFFFu;
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_gesetcallback");
 
     // sceGeUnsetCallback(id) -> 0
     rt.register_function(0x089C5A50u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+        const std::uint32_t id = ctx.gpr[4];
+        if (id < 16u) s_ge_cb[id].used = 0;
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_geunsetcallback");
@@ -868,27 +1064,32 @@ void register_hle(psprecomp::Runtime &rt) {
         static std::uint32_t s_list_id = 1u;
         if (++s_n <= 6u) std::printf("[FUN_0899FA64] #%u param1=%u list=0x%08X cbid=%u\n", s_n, param1, list_phys, cbid);
         // Drive sceGeListEnQueue HLE logic inline (same as 0x089C5A78)
-        psprecomp::g_ge_list_start    = list_phys;
-        psprecomp::g_ge_exec_cursor   = list_phys;
-        psprecomp::g_ge_list_executed = false;
-        const std::uint32_t list_id = s_list_id++;
+        const std::uint32_t list_id = 0x35000000u | (s_list_id++ & 0x00FFFFFFu);
         // DAT_09af6804 = list_id
         rt2.memory().aot_store32(0x09AF6804u, list_id);
+        run_ge_list_now(rt2, list_phys, 0u);
+        psprecomp::g_ge_list_start    = 0u;
+        psprecomp::g_ge_list_executed = true;
+        ge_finish_callback(rt2, ctx, cbid, list_id, 0u);
+        if (!present_and_pump(rt2)) { rt2.stop("window closed"); return; }
         ctx.gpr[2] = 0u; // return 0 (success)
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_0012_hle_0899FA64");
 
     // sceGeListEnQueue(list, stall, cbid, arg) -> list_id
-    rt.register_function(0x089C5A78u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+    rt.register_function(0x089C5A78u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         static std::uint32_t s_list_id = 1u;
         static std::uint32_t s_enq = 0u;
         const std::uint32_t list_phys  = ctx.gpr[4] & 0x1FFFFFFFu;
         const std::uint32_t stall_phys = ctx.gpr[5] & 0x1FFFFFFFu;
-        psprecomp::g_ge_list_start    = list_phys;
-        psprecomp::g_ge_exec_cursor   = list_phys;
-        psprecomp::g_ge_list_executed = false;
-        if (++s_enq <= 6u) std::printf("[GE-ENQUEUE] list=0x%08X stall=0x%08X\n", list_phys, stall_phys);
-        ctx.gpr[2] = s_list_id++;
+        const std::uint32_t list_id = 0x35000000u | (s_list_id++ & 0x00FFFFFFu);
+        const std::uint32_t cbid = ctx.gpr[6], user_arg = ctx.gpr[7];
+        run_ge_list_now(rt2, list_phys, stall_phys);
+        psprecomp::g_ge_list_start    = 0u;
+        psprecomp::g_ge_list_executed = true;
+        if (++s_enq <= 20u) std::printf("[GE-ENQUEUE] list=0x%08X stall=0x%08X cbid=%u ra=0x%08X\n", list_phys, stall_phys, cbid, ctx.gpr[31]); std::fflush(stdout);
+        ge_finish_callback(rt2, ctx, cbid, list_id, user_arg);
+        ctx.gpr[2] = list_id;
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_gelistenqueue");
 
@@ -927,10 +1128,9 @@ void register_hle(psprecomp::Runtime &rt) {
         {
             static std::uint32_t s_ds = 0u; ++s_ds;
             const auto &vram = rt2.memory().vram_bytes();
-            const std::uint32_t vram_off = d012::g_ge_last_fbp & 0x1FFFFFu;
-            const int fmt = d012::g_ge_last_fbfmt;
-            const std::size_t stride = d012::g_ge_last_fbw > 0u ? d012::g_ge_last_fbw
-                                     : (g_display_fb.stride > 0u ? g_display_fb.stride : 512u);
+            const std::uint32_t vram_off = g_display_fb.vaddr & 0x1FFFFFu;
+            const int fmt = g_display_fb.fmt;
+            const std::size_t stride = g_display_fb.stride > 0u ? g_display_fb.stride : 512u;
             if (stride > 0u && fmt >= 0) {
                 const std::size_t bpp = fmt == 3 ? 4u : 2u;
                 const std::size_t fb_bytes = stride * 272u * bpp;
@@ -991,6 +1191,61 @@ void register_hle(psprecomp::Runtime &rt) {
         ctx.gpr[2] = 0u;
         ctx.pc     = ctx.gpr[31];
     }, "recomp_unit_gelistupdatestall");
+
+    // ---- sceUtilitySavedata HLE -----------------------------------------------
+    // D012 calls sceUtilitySavedata* for the AUTOSAVE/AUTOLOAD check at startup.
+    // We return "no save found" for AUTOLOAD so the game proceeds to title screen.
+    // SceUtilitySavedataParam offsets (PPSSPP-compatible):
+    //   +0x1c result, +0x30 mode, +0x3c gameName[13], +0x4c saveName[20]
+    //   +0x64 fileName[13], +0x74 dataBuf, +0x78 dataBufSize, +0x7c dataSize
+    // Mode values: AUTOLOAD=0, AUTOSAVE=1, LOAD=2, SAVE=3
+    // GetStatus return: 2=running, 3=done
+    // sceUtilitySavedataInitStart(SceUtilitySavedataParam*) -> 0
+    auto sd_init_fn = [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        s_sdp_addr = ctx.gpr[4];
+        s_sd_state = 1;
+        const std::uint32_t mode = (s_sdp_addr && rt2.memory().contains(s_sdp_addr + 0x30u, 4u))
+            ? rt2.memory().load32(s_sdp_addr + 0x30u) : 0xFFu;
+        std::printf("[SAVEDATA] InitStart sdp=0x%08X mode=%u\n", s_sdp_addr, mode);
+        std::fflush(stdout);
+        // For AUTOSAVE (1): write result=0 (success) — game doesn't need a read-back
+        // For AUTOLOAD (0): write result=ERR_LOAD_NOT_FOUND (0x80110309) — no save exists
+        if (rt2.memory().contains(s_sdp_addr + 0x1cu, 4u)) {
+            const std::uint32_t result = (mode == 0u || mode == 2u || mode == 4u)
+                ? 0x80110309u  // AUTOLOAD/LOAD: not found
+                : 0u;           // AUTOSAVE/SAVE: success
+            rt2.memory().store32(s_sdp_addr + 0x1cu, result);
+        }
+        ctx.gpr[2] = 0u;
+        ctx.pc     = ctx.gpr[31];
+    };
+    // sceUtilitySavedataGetStatus() -> 3 (complete/done)
+    auto sd_getstatus_fn = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+        const int st = s_sd_state;
+        if (st == 1) s_sd_state = 2;  // advance: running -> complete
+        ctx.gpr[2] = (st >= 1) ? 3u : 0u;  // 3=PSP_UTILITY_DIALOG_NONE (done)
+        ctx.pc     = ctx.gpr[31];
+    };
+    // sceUtilitySavedataShutdownStart() -> 0
+    auto sd_shutdown_fn = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+        std::printf("[SAVEDATA] ShutdownStart\n"); std::fflush(stdout);
+        s_sd_state = 0;
+        ctx.gpr[2] = 0u;
+        ctx.pc     = ctx.gpr[31];
+    };
+    // Register at all observed VAs in the generated stub table
+    // 0x089C5A08 = sceUtilitySavedataInitStart (called from unit_0008 L_089055C0)
+    // 0x089C5A18 = sceUtilitySavedataGetStatus  (called from unit_0007)
+    // 0x089C5A28 = sceUtilitySavedataShutdownStart (called from unit_0008)
+    // The other slots in the 0x089C5Axx range are covered by nop stubs in unit_0014.
+    rt.register_function(0x089C5A08u, sd_init_fn,     "sceUtilitySavedataInitStart");
+    rt.register_function(0x089C5A10u, sd_getstatus_fn,"sceUtilitySavedataGetStatus");
+    rt.register_function(0x089C5A18u, sd_getstatus_fn,"sceUtilitySavedataGetStatus2");
+    rt.register_function(0x089C5A20u, sd_shutdown_fn, "sceUtilitySavedataShutdownStart");
+    rt.register_function(0x089C5A28u, sd_init_fn,     "sceUtilitySavedataInitStart2");
+    rt.register_function(0x089C5A30u, sd_getstatus_fn,"sceUtilitySavedataGetStatus3");
+    rt.register_function(0x089C5A38u, sd_shutdown_fn, "sceUtilitySavedataShutdownStart2");
+    rt.register_function(0x089C5A40u, sd_getstatus_fn,"sceUtilitySavedataGetStatus4");
 
     // sceKernelCpuSuspendIntr() -> saved state (just return 0)
     rt.register_function(0x089C5EC8u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
@@ -1282,6 +1537,24 @@ void register_hle(psprecomp::Runtime &rt) {
     // The game (or PortableKit's module HLE) reads it back and calls it as a function.
     // Units 27-31 are not recompiled, so the interpreter would run into data.
     // Register it as a no-op so any call to it returns immediately.
+    // L_0886453C: the game's internal sceIoOpen wrapper — stub it so fd is always
+    // returned correctly regardless of UMD-readiness state or chain depth.
+    // L_0886453C: the game's sceIoOpen wrapper.
+    // Calling convention: a0=handle/struct, a1=path ptr, a2=mode byte (0=retry, 1=no-retry).
+    // The generated code extracts a1 as the path and calls sceIoOpen(a1, flags).
+    // L_0886453C: the game's sceIoOpen wrapper.
+    // a0=handle, a1=path ptr, a2=mode byte (1=O_RDONLY, other=0x40000001).
+    rt.register_function(0x0886453Cu, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        const std::string path = rt2.memory().read_c_string(ctx.gpr[5]); // a1 = path string
+        const std::uint32_t mode = ctx.gpr[6] & 0xFFu;                   // a2 low byte
+        const std::uint32_t flags = (mode == 1u) ? 1u : 0x40000001u;    // O_RDONLY or create
+        const std::uint32_t fd = d012::io_open(path, flags);
+        std::printf("[HLE-OPEN] path='%s' flags=0x%X -> fd=%u\n", path.c_str(), flags, fd);
+        std::fflush(stdout);
+        ctx.gpr[2] = fd;
+        ctx.pc = ctx.gpr[31];
+    }, "hle_FUN_0886453C_open");
+
     rt.register_function(0x08BA77D0u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
         static unsigned s_n = 0;
         if (s_n++ < 4) { std::printf("[HLE-STUB] 0x08BA77D0 called ra=0x%08X -> nop\n", ctx.gpr[31]); std::fflush(stdout); }
@@ -1574,15 +1847,25 @@ std::uint32_t io_open(const std::string &psp_path, std::uint32_t flags) {
         std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u serving PACKAGE.BIN\n", psp_path.c_str(), fd);
         return fd;
     }
-    // "ss" (startup screen / Square Enix logo) is inside package.bin which we
-    // don't fully embed.  Return an empty fd so the resource manager gets a
-    // valid handle and reads zero bytes, causing the splash to be skipped.
+    // Real ss descriptor from PACKAGE.BIN (84 bytes). byte[0]=0x06 dispatches
+    // to a valid function table entry that initializes the scene state machine.
+    // An empty stub caused byte[0]=0 -> invalid dispatch -> GE_shutdown.
     if (!embedded.data && guest_rel == "ss" && !(flags & 2u)) {
+        static const unsigned char ss_data[] = {
+            0x06,0x00,0x00,0x00,0x01,0x00,0x00,0x00,0x65,0x75,0x00,0x00,0x3d,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x55,0x4c,0x45,0x53,0x30,0x31,0x35,0x30,0x35,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x4e,0x50,0x45,0x48,0x30,0x30,0x31,0x30,0x38,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x55,0x4c,0x45,0x53,0x30,0x31,0x32,0x37,0x30,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00,0x55,0x43,0x45,0x53,0x30,0x31,0x32,0x32,0x39,0x00,0x00,0x00,
+            0x00,0x00,0x00,0x00
+        };
         FILE *fp = std::tmpfile();
         if (!fp) return static_cast<std::uint32_t>(-2);
+        std::fwrite(ss_data, 1, sizeof(ss_data), fp);
+        std::rewind(fp);
         const std::uint32_t fd = s_next_fd++;
         s_fds[fd] = {fp, psp_path};
-        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u empty stub (splash skipped)\n", psp_path.c_str(), fd);
+        std::printf("[IO-EMBEDDED] sceIoOpen: \"%s\" -> fd=%u real ss data (%zu bytes)\n", psp_path.c_str(), fd, sizeof(ss_data));
         return fd;
     }
     if (embedded.data && !(flags & 2u)) {

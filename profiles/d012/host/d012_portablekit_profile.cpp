@@ -109,8 +109,10 @@ static void patch_d012_image(psprecomp::Runtime &rt, const psprecomp::Elf32Image
         const std::filesystem::path game_dir = portablekit::game().boot_path
             ? std::filesystem::path(portablekit::game().boot_path).parent_path()
             : std::filesystem::path{};
-        if (!game_dir.empty())
-            load_overlay_from_file(rt, game_dir / "OVL_MENU_APP.ELF");
+        std::filesystem::path ovl = game_dir.empty() ? std::filesystem::path{} : game_dir / "OVL_MENU_APP.ELF";
+        if (const char *env = std::getenv("D012_OVERLAY"); env && *env) ovl = env;
+        if (!ovl.empty() && std::filesystem::exists(ovl)) load_overlay_from_file(rt, ovl);
+        else std::printf("[OVERLAY] OVL_MENU_APP.ELF not found (set D012_OVERLAY)\n");
     }
 
     // Thread control block ($k0) — PortableKit's kernel sets this up, but
@@ -430,32 +432,39 @@ static void patch_d012_image(psprecomp::Runtime &rt, const psprecomp::Elf32Image
             kHeapStruct, kFreeBase, kFreeLimit);
         std::fflush(stdout);
     }
-    rt.register_function(0x088820C0u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-        ctx.gpr[2] = 0x09000000u;
-        ctx.pc = ctx.gpr[31];
-    }, "hle_FUN_088820C0_heap_stub");
+    // FUN_088820C0 stub removed: the MIPS code correctly stores the heap handle
+    // at DAT_089d69a0+0xECDC00 via FUN_08881f78, so the recompiled MIPS returns
+    // the right handle (0x08C15E80) without needing an override.
 
-    // Shared bump allocator for all internal heap alloc variants.
-    // gpr[4]=heap_ptr (ignored), gpr[5]=size, gpr[6]=align (0 = default 64).
-    // Arena: 0x09410000–0x09C00000 (~8 MB), just above the fake heap struct.
-    // s_heap_bump must survive past patch_d012_image returning, so static.
-    static std::uint32_t s_heap_bump = 0x09410000u;
-    auto heap_alloc_stub = [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
-        constexpr std::uint32_t kHeapArenaLimit = 0x09C00000u;
-        std::uint32_t size  = ctx.gpr[5];
-        std::uint32_t align = ctx.gpr[6] ? ctx.gpr[6] : 64u;
-        if (align < 4u) align = 4u;
-        s_heap_bump = (s_heap_bump + align - 1u) & ~(align - 1u);
-        if (size == 0u || s_heap_bump + size > kHeapArenaLimit) {
-            ctx.gpr[2] = 0u;
+    // FUN_08882118(size=gpr4, align=gpr5) — heap alloc used for display-list buffers.
+    // The MIPS heap chain (FUN_0885C6CC) fails because the heap handle it computes
+    // via indirection through DAT_089D6990 is never correctly set up.  Intercept and
+    // implement a simple bump allocator in PSP RAM (0x09800000..0x09C00000, 4 MB).
+    // Returns the allocated PSP address in gpr[2], or 0 on OOM.
+    rt.register_function(0x08882118u, [](psprecomp::Runtime &rt2, psprecomp::AllegrexContext &ctx) {
+        static std::uint32_t s_bump = 0x09800000u;
+        static constexpr std::uint32_t kBumpEnd = 0x09C00000u;
+        const std::uint32_t size  = ctx.gpr[4];
+        const std::uint32_t align = (ctx.gpr[5] > 0u) ? ctx.gpr[5] : 64u;
+        // Align up bump pointer
+        const std::uint32_t aligned = (s_bump + align - 1u) & ~(align - 1u);
+        static std::uint32_t s_n = 0u;
+        if (aligned + size <= kBumpEnd && rt2.memory().contains(aligned, size)) {
+            s_bump = aligned + size;
+            if (++s_n <= 8u)
+                std::printf("[HLE-ALLOC] FUN_08882118 size=0x%X align=0x%X -> 0x%08X\n",
+                            size, align, aligned);
+            ctx.gpr[2] = aligned;
         } else {
-            ctx.gpr[2] = s_heap_bump;
-            s_heap_bump += size;
+            if (++s_n <= 8u)
+                std::printf("[HLE-ALLOC] FUN_08882118 OOM size=0x%X\n", size);
+            ctx.gpr[2] = 0u;
         }
         ctx.pc = ctx.gpr[31];
-    };
-    rt.register_function(0x0885C538u, heap_alloc_stub, "recomp_unit_0002_FUN_0885C538_heap_alloc");
-    rt.register_function(0x0885C6CCu, heap_alloc_stub, "recomp_unit_0002_FUN_0885C6CC_heap_alloc");
+    }, "recomp_unit_hle_FUN_08882118_alloc");
+
+    // FUN_0885c538 (free) and FUN_0885c6cc (alloc) are the PSP heap routines.
+    // The real MIPS code handles them via the recompiled unit — no stubs needed.
 
     // FUN_088769CC (L_0887733C) stores gpr[20]=0 to 0x089985E8 because s4 is 0
     // when the function is called (see [769CC-REGS] log: s20=0).  The read at
@@ -527,6 +536,19 @@ static void patch_d012_image(psprecomp::Runtime &rt, const psprecomp::Elf32Image
             ctx.pc = ctx.gpr[31];
         }, "hle_scesupPreAcc_stub");
     }
+
+    // sceKernelStopModule (PortableKit-internal HLE) reads the module stop-function
+    // pointer stored in the module struct and jumps to it.  For D012 the stop fn
+    // is at 0x08BA77D0, which is in un-recompiled territory (units 27+).  The
+    // interpreter runs ~72k instructions through the data section and crashes at
+    // 0x08BEE950 with word 0x0000FFFF.  Register a no-op so the interpreter never
+    // sees that address.
+    rt.register_function(0x08BA77D0u, [](psprecomp::Runtime &, psprecomp::AllegrexContext &ctx) {
+        static unsigned s_stop = 0u;
+        if (s_stop++ < 2u) { std::printf("[HLE] module stop fn 0x08BA77D0 nop (count=%u)\n", s_stop); std::fflush(stdout); }
+        ctx.gpr[2] = 0u;
+        ctx.pc = ctx.gpr[31];
+    }, "hle_module_stop_fn_08BA77D0");
 
     // Patch complete.
 

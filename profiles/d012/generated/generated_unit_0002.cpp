@@ -15,7 +15,6 @@ extern "C" const char* d012_get_game_root();
 // Shared bump allocator used by heap stubs at L_0885C538 and L_0885C6CC.
 // Range 0x09C00000–0x09D00000 (1 MB) — above profile's arena (0x09C00000 limit)
 // and below the thread control block area (0x09E00000–0x09F00000).
-static std::uint32_t s_gen_heap_bump = 0x09C00000u;
 
 // Async-open stub: maps path string hash → sequential handle
 static int s_async_seq = 1;
@@ -44284,20 +44283,6 @@ L_0885C508:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_0885C538:
-    // HEAP-STUB: bypass PSP heap alloc — bump allocator in PSP address space
-    {
-        std::uint32_t req_size = ctx.gpr[5];
-        std::uint32_t alignment = (ctx.gpr[6] > 0u) ? ctx.gpr[6] : 64u;
-        if (alignment < 4u) alignment = 4u;
-        s_gen_heap_bump = (s_gen_heap_bump + alignment - 1u) & ~(alignment - 1u);
-        std::uint32_t result = s_gen_heap_bump;
-        s_gen_heap_bump += (req_size < 4u ? 4u : req_size);
-        { static unsigned s_log=0; if(s_log<8){s_log++; std::printf("[HEAP-38] alloc size=%u align=%u -> 0x%08X ra=0x%08X\n", req_size,alignment,result,ctx.gpr[31]); fflush(stdout);} }
-        ctx.gpr[2] = result;
-        jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
-        if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-        return;
-    }
     { const bool branch_taken = static_cast<std::int32_t>(ctx.gpr[6]) > 0;
     ctx.gpr[7] = (aot_mem.aot_load32(ctx.gpr[4] + static_cast<std::uint32_t>(12)));
       if (branch_taken) {
@@ -44448,20 +44433,6 @@ L_0885C6BC:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_0885C6CC:
-    // HEAP-STUB: bypass PSP heap alloc — bump allocator in PSP address space
-    {
-        std::uint32_t req_size = ctx.gpr[5];
-        std::uint32_t alignment = (ctx.gpr[6] > 0u) ? ctx.gpr[6] : 64u;
-        if (alignment < 4u) alignment = 4u;
-        s_gen_heap_bump = (s_gen_heap_bump + alignment - 1u) & ~(alignment - 1u);
-        std::uint32_t result = s_gen_heap_bump;
-        s_gen_heap_bump += (req_size < 4u ? 4u : req_size);
-        { static unsigned s_log=0; if(s_log<8){s_log++; std::printf("[HEAP-CC] alloc size=%u align=%u -> 0x%08X ra=0x%08X\n", req_size,alignment,result,ctx.gpr[31]); fflush(stdout);} }
-        ctx.gpr[2] = result;
-        jump_target = ctx.gpr[31]; ctx.pc = jump_target; local_pc = jump_target;
-        if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
-        return;
-    }
     ctx.gpr[8] = (ctx.gpr[8] & 255u);
     { const bool branch_taken = static_cast<std::int32_t>(ctx.gpr[6]) > 0;
     ctx.gpr[7] = (ctx.gpr[9] & 255u);
@@ -54905,19 +54876,25 @@ L_08863F64:
 L_08863F68:
     jump_target = ctx.gpr[7];
     { static unsigned s_rescb_trace = 0u;
-      if (s_rescb_trace++ < 4u)
-          std::printf("[RESCB-OPEN] func_ptr=0x%08X a4=0x%08X\n", jump_target, ctx.gpr[4]);
+      if (s_rescb_trace++ < 8u)
+          std::printf("[RESCB-OPEN] func_ptr=0x%08X gpr4=0x%08X gpr5=0x%08X('%s') gpr6=0x%08X\n",
+              jump_target, ctx.gpr[4], ctx.gpr[5], rt.memory().read_c_string(ctx.gpr[5]).c_str(), ctx.gpr[6]);
       std::fflush(stdout); }
     ctx.set_gpr(31, 0x08863F70u);
     ctx.set_gpr(6, ctx.gpr[21] | 0u);
     ctx.pc = jump_target;
+    { std::printf("[RESCB-PRE-CHAIN] ctx.pc=0x%08X jump_target=0x%08X gpr4=0x%08X\n",
+          ctx.pc, jump_target, ctx.gpr[4]); std::fflush(stdout); }
     // ARCH-SYNTH: 0x0886453C is same unit 2.  invoke_chained_direct resets local_transfers
     // and runs the full callee chain (including the L_08863F70 continuation inline).
     // When it returns, ctx.pc holds the outer caller's ra (already correct for re-dispatch).
-    rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x0886453Cu>(ctx, &aot_mem);
+    { bool _r = rt.invoke_chained_direct<&recomp_unit_0002_entry, 2u, 1u, 0x0886453Cu>(ctx, &aot_mem);
+      std::printf("[RESCB-POST-CHAIN] ret=%d ctx.pc=0x%08X gpr2=0x%08X\n", (int)_r, ctx.pc, ctx.gpr[2]);
+      std::fflush(stdout);
+      if (_r && ctx.pc == 0x08863F70u) goto L_08863F70; }
     return;
 L_08863F70:
-    { static unsigned s_t=0u; if(s_t++<4u) std::printf("[F70-HIT] fd=gpr2=0x%08X gpr21=0x%08X\n", ctx.gpr[2], ctx.gpr[21]); std::fflush(stdout); }
+    { static unsigned s_t=0u; std::printf("[F70-HIT#%u] fd=gpr2=0x%08X\n", s_t++, ctx.gpr[2]); std::fflush(stdout); }
     ctx.set_gpr(20, ctx.gpr[2] | 0u);
     goto L_08863F74;
 L_08863F74:
@@ -55238,12 +55215,12 @@ L_0886452C:
     if (++local_transfers < 2048u) { entry_id = 0u; goto LOCAL_DISPATCH; }
     return;
 L_0886453C:
-    { static unsigned s_t=0u; if(s_t++<4u) {
-        std::printf("[453C] a0=0x%08X(path_str='%s') a1=0x%08X a2=0x%08X gpr6=0x%08X gpr7=0x%08X gpr8=0x%08X\n",
-            ctx.gpr[4], rt.memory().read_c_string(ctx.gpr[4]).c_str(),
-            ctx.gpr[5], ctx.gpr[6], ctx.gpr[6], ctx.gpr[7], ctx.gpr[8]);
-        std::fflush(stdout); } }
+    { static unsigned s_t=0u;
+      std::printf("[453C#%u] path='%s' gpr4=0x%08X\n",
+          s_t++, rt.memory().read_c_string(ctx.gpr[4]).c_str(), ctx.gpr[4]);
+      std::fflush(stdout); }
     ctx.set_gpr(29, ctx.gpr[29] + static_cast<std::uint32_t>(-32));
+    { std::printf("[453C-SP] sp=0x%08X\n", ctx.gpr[29]); std::fflush(stdout); }
     goto L_08864540;
 L_08864540:
     rt.memory().aot_store32(ctx.gpr[29] + static_cast<std::uint32_t>(4), ctx.gpr[17]);
@@ -55293,16 +55270,16 @@ L_08864578:
     ctx.set_gpr(4, ctx.gpr[17] | 0u);
     goto L_0886457C;
 L_0886457C:
-    { static unsigned s_u=0u; if(s_u++<4u) { std::printf("[457C] pre-UMD a4_path=0x%08X('%s') gpr16=0x%08X gpr19=0x%08X\n", ctx.gpr[4], rt.memory().read_c_string(ctx.gpr[4]).c_str(), ctx.gpr[16], ctx.gpr[19]); std::fflush(stdout); } }
+    { static unsigned s_u=0u; std::printf("[457C#%u] pre-UMD path='%s'\n", s_u++, rt.memory().read_c_string(ctx.gpr[4]).c_str()); std::fflush(stdout); }
     ctx.set_gpr(31, 0x08864584u);
     ctx.set_gpr(5, 0u | 1u);
     ctx.pc = 0x08864B68u;
     // ARCH-SYNTH: 0x08864B68 (UMD ready check) is in unit 3; use direct cross-unit call.
     if (rt.invoke_chained_direct<&recomp_unit_0003_entry, 3u, 5u, 0x08864B68u>(ctx, &aot_mem) && ctx.pc == 0x08864584u) goto L_08864584;
-    { static unsigned s_f=0u; if(s_f++<4u) { std::printf("[457C] UMD chain FAILED pc=0x%08X\n", ctx.pc); std::fflush(stdout); } }
+    { static unsigned s_f=0u; std::printf("[457C-FAIL#%u] UMD chain FAILED pc=0x%08X\n", s_f++, ctx.pc); std::fflush(stdout); }
     return;
 L_08864584:
-    { static unsigned s_v=0u; if(s_v++<4u) { std::printf("[4584] post-UMD v0=0x%08X, calling sceIoOpen with a0=0x%08X('%s') a1=0x%08X\n", ctx.gpr[2], ctx.gpr[16], rt.memory().read_c_string(ctx.gpr[16]).c_str(), ctx.gpr[19]); std::fflush(stdout); } }
+    { static unsigned s_v=0u; std::printf("[4584#%u] post-UMD sceIoOpen path='%s'\n", s_v++, rt.memory().read_c_string(ctx.gpr[16]).c_str()); std::fflush(stdout); }
     ctx.set_gpr(4, ctx.gpr[16] | 0u);
     goto L_08864588;
 L_08864588:
@@ -55314,7 +55291,7 @@ L_0886458C:
     ctx.pc = 0x089C5EA8u;
     // ARCH-SYNTH: sceIoOpen is in unit 14; invoke_chained_call can't cross units, use direct.
     { bool _r = rt.invoke_chained_direct<&recomp_unit_0014_entry, 14u, 330u, 0x089C5EA8u>(ctx, &aot_mem);
-      static unsigned s_t=0u; if(s_t++<4u) std::printf("[IOOPEN-DIRECT] ret=%d pc=0x%08X fd=%d\n", (int)_r, ctx.pc, (int)ctx.gpr[2]); std::fflush(stdout);
+      static unsigned s_t=0u; std::printf("[IOOPEN-DIRECT#%u] ret=%d pc=0x%08X fd=%d\n", s_t++, (int)_r, ctx.pc, (int)ctx.gpr[2]); std::fflush(stdout);
       if (_r && ctx.pc == 0x08864594u) goto L_08864594; }
     return;
 L_08864594:
