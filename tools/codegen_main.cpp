@@ -968,8 +968,12 @@ std::string emit_function_source(const GeneratedFunctionInput &function,
              << "    (void)direct_entry_id;\n"
              << "    std::uint32_t jump_target = 0u;\n"
              << "    std::uint32_t local_transfers = 0u;\n"
+             // Local transfers (jr, internal jumps) advance local_pc only, so this is what
+             // the dispatch has to switch on; ctx.pc is stale after the first transfer.
+             << "    std::uint32_t local_pc = ctx.pc;\n"
+             << "    std::uint16_t entry_id = 0;\n"
              << "LOCAL_DISPATCH:\n"
-             << "    switch (ctx.pc) {\n";
+             << "    switch (local_pc) {\n";
         for (const auto label : function.entry_labels) {
             body << "    case " << psprecomp::hex32(label) << "u: goto L_"
                  << psprecomp::hex32(label).substr(2) << ";\n";

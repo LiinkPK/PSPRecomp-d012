@@ -34,6 +34,7 @@ SAVEDATA/
 /profiles/*/progress/
 /profiles/*/captures/
 /original
+/tools/textures/*
 
 # Generated scratch output (the checked-in profile corpus is not ignored)
 *.generated
@@ -52,13 +53,13 @@ SAVEDATA/
 # Python
 __pycache__/
 *.pyc
+*.py
 
 # Other Files
 Roadmap.*
 .aider*
 .claude*
 .rea*
-codex*
 .continue*
 PROGRESS.json
 reasoning_trace.json

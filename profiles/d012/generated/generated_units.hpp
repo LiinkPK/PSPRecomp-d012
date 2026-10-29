@@ -36,6 +36,7 @@ void recomp_unit_0013(Runtime &, AllegrexContext &);
 void recomp_unit_0013_entry(Runtime &, AllegrexContext &, std::uint16_t, GuestMemory::AotFastView &);
 void recomp_unit_0014(Runtime &, AllegrexContext &);
 void recomp_unit_0014_entry(Runtime &, AllegrexContext &, std::uint16_t, GuestMemory::AotFastView &);
+// Branch targets beyond the recompiled code (data and heap); no body exists for them.
 void recomp_unit_0015(Runtime &, AllegrexContext &);
 void recomp_unit_0015_entry(Runtime &, AllegrexContext &, std::uint16_t, GuestMemory::AotFastView &);
 void recomp_unit_0016(Runtime &, AllegrexContext &);

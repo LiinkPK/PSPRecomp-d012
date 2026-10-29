@@ -206,6 +206,10 @@
           <span class="font-bold text-tokyo-accent min-w-[3rem]">S16</span>
           <span class="text-tokyo-muted"><strong class="text-tokyo-text">Init restart loop fixed; second route via 3rd Birthday's pipeline.</strong> PortableKit build: fixed the driver loop that re-entered the main entry on every unwind, the SPIN-BREAK hack that left the real main loop, an unbounded line rasteriser (the freeze), GE <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">END</code> handling and finish callbacks. Then ran D012 through 3rd Birthday's recompilation pipeline (generic runtime, real scheduler and GE; 3rd Birthday itself boots here from its own prepare flow). Found that the code generator only read the import table for PRX files, so all 296 D012 import stubs were no-ops; fixed the loader, entry point <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">0x08804040</code>, <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">$gp</code>, 77 missing HLE imports, six VFPU ops, and recompiled the three runtime-swapped overlays (menu/battle/extra). The game now runs its real startup and enters the menu overlay. <strong class="text-tokyo-text">Still no splash:</strong> one thread spins on a semaphore without waiting for vblank, so the window never pumps (black, Not Responding).</span>
         </div>
+        <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
+          <span class="font-bold text-tokyo-accent min-w-[3rem]">S17</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">Renders on the 3rd Birthday route; native root cause found.</strong> The freeze was the runtime skipping its vblank tick when no vblank handler is registered (Dissidia polls vcount and the pad). Native build regenerated cleanly from the ISO executable with all imports bound to HLE. The generator dispatched on a stale <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ctx.pc</code> after internal jumps, so returns landed on the wrong address; fixed to <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">local_pc</code> in the generator and all units. Added PPSSPP-hash texture replacement packed into the exe. Full rebuild pending; splash not yet confirmed natively.</span>
+        </div>
       </div>
     </section>
 
@@ -261,7 +265,7 @@
     </section>
 
     <footer class="text-center text-xs text-tokyo-muted py-4 border-t border-tokyo-border">
-      PSPRecomp · Dissidia 012 PC Port · Last updated: <span class="font-bold text-tokyo-accent min-w-[3rem]">28/10/2026</span> ·
+      PSPRecomp · Dissidia 012 PC Port · Last updated: <span class="font-bold text-tokyo-accent min-w-[3rem]">29/10/2026</span> ·
       <a href="https://github.com/LiinkPK/PSPRecomp-d012" target="_blank" rel="noopener" class="hover:text-tokyo-accent">github.com/LiinkPK/PSPRecomp-d012</a>
     </footer>
 

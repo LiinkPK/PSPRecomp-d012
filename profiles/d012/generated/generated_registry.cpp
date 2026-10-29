@@ -17,10 +17,6 @@ void register_generated_unit_11(Runtime &runtime);
 void register_generated_unit_12(Runtime &runtime);
 void register_generated_unit_13(Runtime &runtime);
 void register_generated_unit_14(Runtime &runtime);
-void register_generated_unit_15(Runtime &runtime);
-void register_generated_unit_16(Runtime &runtime);
-void register_generated_unit_17(Runtime &runtime);
-void register_init_funcs(Runtime &runtime);
 
 void register_generated_functions(Runtime &runtime) {
     register_generated_unit_0(runtime);
@@ -38,9 +34,5 @@ void register_generated_functions(Runtime &runtime) {
     register_generated_unit_12(runtime);
     register_generated_unit_13(runtime);
     register_generated_unit_14(runtime);
-    register_generated_unit_15(runtime);
-    register_generated_unit_16(runtime);
-    register_generated_unit_17(runtime);
-    register_init_funcs(runtime);
 }
 } // namespace psprecomp

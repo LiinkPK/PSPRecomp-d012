@@ -1,6 +1,6 @@
-﻿# PSPRecomp — Dissidia 012 (ULES01505.BIN) — Current State
+# PSPRecomp — Dissidia 012 (ULES01505.BIN) — Current State
 
-**Last updated:** 28/10/2026 (Session 16)
+**Last updated:** 29/10/2026 (Session 17)
 
 **Goal:** Genuinely boot Dissidia 012's original startup path and visibly render the authentic Square Enix logo through guest asset I/O — guest VRAM — GE — the native window. A blank window, hard-coded logo, placeholder, or host overlay does not count.
 
@@ -226,6 +226,20 @@ All PSP import stubs cluster in unit 14 (`0x089C4040`—`0x089C6040`). The gener
 
 ---
 
+### Session 17 findings (29/10/2026)
+
+**Result: the game now renders in the `d012-recomp` (3rd Birthday pipeline) build.** The window responds and the GE draws (about 700 submits and 20k triangles in 25 s). The user confirmed the picture on screen.
+
+- **Root cause of black / "Not Responding":** the 3rd Birthday runtime's `sched.c` vblank path returned early (`if (!h) return;`) when the game had no registered vblank sub-interrupt handler. D012 imports no `SubIntr` functions, so `sr_vblank_tick` never ran: `sceDisplayGetVcount` stayed at 0 and no pad sample was latched. `sceCtrlReadBufferPositive` in `FUN_08871e24` (task `FUN_08872f08`, pass 2 of the scheduler `FUN_0888245c`) then blocked forever and the window was never pumped.
+- **Fix:** run `sr_vblank_tick()` on every vblank; call the game's handler only if registered. (3rd Birthday runtime, `sched.c`; not part of this repo.)
+- **Session 16 "spin on semaphore 0x11f" was a misdiagnosis.** `FUN_08991d60` is the audio mixer thread and the semaphore is its mutex.
+- **PortableKit (`out/d012_pk`) is not affected:** `Kernel::on_vblank` already advances the counter and wakes waiters unconditionally. Nothing to port there.
+- **Native port (PortableKit `d012_native.exe`), prepared, not yet built/run:** the hand-patched units (129 MB, `ARCH-SYNTH`, no-op sync stubs, a wall-clock vblank spin that owned the frame loop) are replaced by a clean `psp_recomp --auto <ISO EBOOT> 0x08804040 131072` regeneration (15 units, 38 MB). The old hand-patched set is in git history. `d012_portablekit_profile.cpp` was rewritten: it binds every ELF import to the framework HLE (the clean units cover the stub addresses with `jr ra`), keeps only the entry redirect, the module-stop no-op, `sceKernelLoadModule` fake ids, and the English/RTC answers (`profiles/d012/config/nids.csv`). `d012_profile.cpp`, `ge_render.cpp`, `win32_display.cpp` and the embedded-asset step are no longer part of `d012_pk`. The installed `EBOOT.ELF` was replaced by the ISO-derived ELF the code was generated from (old one saved as `EBOOT.ELF.old_ffstjp`).
+- **How it was found:** `SR_PCCOUNT` on the task entry points (log is chronological) showed pass 2 stopping inside `FUN_08872f08` -> `FUN_08871e24`, then the REA for that function showed the pad read.
+- **Run/build:** build with `bash scripts/build.sh` under `C:\msys64` (`MSYSTEM=UCRT64 GAME=ULES01505`, about 1 minute incremental). Run the exe with no arguments from `build/ULES01505` so it uses `launch.cfg` and writes its own `run.err`.
+
+---
+
 ### Session 16 findings (28/10/2026)
 
 **Result: the Square Enix splash has still NOT been displayed.** The window is black and shows "Not Responding".
@@ -412,3 +426,13 @@ general_archive/field/ZQ/field_lang.bin → not yet loaded
 **Current blocker:** PortableKit's `sceKernelStopModule` HLE calls the module stop-function pointer `0x08BA77D0` (un-recompiled, data section). Interpreter runs 72k instructions through data until it hits `0x0000FFFF` at `0x08BEE950`. Attempted NID override (`ModuleMgrForUser / 0xD1FF982A`) via `rt.register_hle` after `force_import_stub` — import stub address is already bound to PortableKit's internal HLE which calls the stop function directly; NID override does not intercept the internal call.
 
 **Next step:** Override the stop function call path inside PortableKit's kernel HLE, or register `0x08BA77D0` directly as a no-op HLE stub so the interpreter never runs there.
+
+---
+
+## Session 17 (29/10/2026)
+
+- **3rd Birthday route renders the game.** The freeze was the runtime skipping its vblank tick when a game registers no vblank handler; Dissidia polls the vcount and the pad. The earlier "semaphore spin" was the audio thread.
+- **Native build regenerated cleanly** from the ISO's executable (no hand patches); every import is bound to the real PortableKit HLE.
+- **Native crash root cause:** the code generator's non-dense template switched on `ctx.pc`, but internal jumps only update `local_pc`, so returns dispatched to a stale address. Now switches on `local_pc`; fixed in `tools/codegen_main.cpp` and all generated units.
+- **Texture replacement** in the renderer by PPSSPP `hash=quick` ID, pack embedded in the exe; window title and icon from the profile.
+- **Status:** full rebuild pending. Square Enix splash not yet confirmed on the native build.

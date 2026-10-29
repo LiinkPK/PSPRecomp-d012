@@ -13,7 +13,7 @@ void recomp_unit_0009_entry(Runtime &rt, AllegrexContext &ctx, std::uint16_t dir
     std::uint32_t local_pc = ctx.pc;
     std::uint16_t entry_id = 0u;
 LOCAL_DISPATCH:
-    switch (ctx.pc) {
+    switch (local_pc) {
     case 0x08AFD4C0u: goto L_08AFD4C0;
     case 0x08AFD4DCu: goto L_08AFD4DC;
     case 0x08AFD4E4u: goto L_08AFD4E4;
