@@ -144,7 +144,7 @@
         <span>THE SHORTCUT FOR DISSIDIA SPECIFICALLY</span>
       </div>
       <p class="text-xs md:text-sm text-tokyo-text leading-relaxed">
-        <strong class="text-tokyo-accent">Pro Tip:</strong> PortableKit's Vulkan renderer is already wired up — the moment the game thread gets past the <span class="code-tag">invoke_chained_direct</span> blocker and reaches its first GE display list submission, the window should show output. At that point you can compare the guest framebuffer against <span class="code-tag">PPSSPP</span> frame-by-frame to validate GE commands without touching the renderer at all.
+        <strong class="text-tokyo-accent">Pro Tip:</strong> the Vulkan renderer in PortableKit already draws the game, so the quickest way to find a rendering bug is to compare the same screen against <span class="code-tag">PPSSPP</span>. Session 17 found two this way: glyphs written with a zero pitch, and a missing GE colour-doubling bit that halved the brightness.
       </p>
     </section>
 
@@ -208,7 +208,7 @@
         </div>
         <div class="flex gap-3 p-2.5 bg-tokyo-bg/60 border border-tokyo-border rounded">
           <span class="font-bold text-tokyo-accent min-w-[3rem]">S17</span>
-          <span class="text-tokyo-muted"><strong class="text-tokyo-text">Renders on the 3rd Birthday route; native root cause found.</strong> The freeze was the runtime skipping its vblank tick when no vblank handler is registered (Dissidia polls vcount and the pad). Native build regenerated cleanly from the ISO executable with all imports bound to HLE. The generator dispatched on a stale <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ctx.pc</code> after internal jumps, so returns landed on the wrong address; fixed to <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">local_pc</code> in the generator and all units. Added PPSSPP-hash texture replacement packed into the exe. Full rebuild pending; splash not yet confirmed natively.</span>
+          <span class="text-tokyo-muted"><strong class="text-tokyo-text">First native splash, sound, title screen and menus.</strong> Root causes: PortableKit's generator template dispatched on a stale <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">ctx.pc</code> after internal jumps (now <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">local_pc</code>), and a function reachable only through a data pointer table was never emitted. Units now cover 16 KB of guest code (113 units) instead of 128 KB (15 units of 8 MB, 30-40 min each to compile). Host fixes: font glyph pitch (bits per pixel byte at font-info +0x104), the dimmed picture (GE colour-doubling bit), savedata <code class="text-tokyo-red bg-tokyo-red/10 px-1 rounded">LIST</code>, window title, HD texture pack embedded in the exe with a faster PNG decoder (untimed). <strong class="text-tokyo-text">Open:</strong> soft native fonts at 1080p, slow loading and menu changes, opening cinematic freeze, PPSSPP save hash.</span>
         </div>
       </div>
     </section>
@@ -321,7 +321,7 @@
           { id: "p3-t1", name: "Understand sceGu calls as recompiled MIPS code",               note: "Game builds display lists directly in RAM",  done: true  },
           { id: "p3-t2", name: "GE command interpreter skeleton (CLEAR, 2D sprites, flat-color)", note: "Software rasterizer handles basic 2D (Handled by PortableKit)",    done: true  },
           { id: "p3-t3", name: "Texture sampling — RGB565, RGBA8888, DXT, CLUT",               note: "Block-compressed + index-color formats (Handled by PortableKit)",    done: true  },
-          { id: "p3-t4", name: "First non-zero pixel output",                                    note: "S15: CHAIN-BAD fixed systemically (runtime.hpp). First GE display list enqueued (list=0x09410180). Blocker: sceKernelStopModule calls 0x08BA77D0 (un-recompiled) → interpreter crash at 0x08BEE950", done: false },
+          { id: "p3-t4", name: "First non-zero pixel output",                                    note: "S17: native build shows the Square Enix splash, the title screen and the menus with the HD pack", done: true },
           { id: "p3-t5", name: "Translate display lists to Vulkan",                              note: "GE commands translate to Vulkan internally (Handled by PortableKit)", done: true  },
           { id: "p3-t6", name: "Validate GE interpreter against PPSSPP frame dumps",            note: "Frame-by-frame comparison milestone",       done: false },
         ]
@@ -335,7 +335,7 @@
         borderColor: "border-l-tokyo-purple",
         summary: "Synthesize background music and sound effects using host audio backends.",
         tasks: [
-          { id: "p4-t1", name: "sceAudio raw PCM output",                                       note: "Output raw audio via SDL2 / miniaudio",          done: false },
+          { id: "p4-t1", name: "sceAudio raw PCM output",                                       note: "Sound plays in the native build (PortableKit audio)", done: true  },
           { id: "p4-t2", name: "sceSasCore 32-channel ADPCM/ADSR mixer",                        note: "uOFW clean reference implementation",            done: false },
           { id: "p4-t3", name: "ATRAC3+ music streaming / stubbing",                            note: "Stub to silence; decode later with libatrac3plus", done: false },
         ]
@@ -349,8 +349,8 @@
         borderColor: "border-l-tokyo-red",
         summary: "Read gamepad states and map host inputs back into PSP pad buffers.",
         tasks: [
-          { id: "p5-t1", name: "sceCtrlReadBufferPositive hook",                                note: "Intercept input polling calls",                 done: false },
-          { id: "p5-t2", name: "Map SDL2 / XInput gamepad buttons to PSP bits",                 note: "D-Pad, Analog Stick, Face Buttons, Triggers",  done: false },
+          { id: "p5-t1", name: "sceCtrlReadBufferPositive hook",                                note: "Keyboard / gamepad navigate the menus (PortableKit input)", done: true  },
+          { id: "p5-t2", name: "Map SDL2 / XInput gamepad buttons to PSP bits",                 note: "Mapped by PortableKit; menus navigable", done: true  },
         ]
       }
     ];

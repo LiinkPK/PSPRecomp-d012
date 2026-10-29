@@ -431,8 +431,23 @@ general_archive/field/ZQ/field_lang.bin → not yet loaded
 
 ## Session 17 (29/10/2026)
 
-- **3rd Birthday route renders the game.** The freeze was the runtime skipping its vblank tick when a game registers no vblank handler; Dissidia polls the vcount and the pad. The earlier "semaphore spin" was the audio thread.
-- **Native build regenerated cleanly** from the ISO's executable (no hand patches); every import is bound to the real PortableKit HLE.
-- **Native crash root cause:** the code generator's non-dense template switched on `ctx.pc`, but internal jumps only update `local_pc`, so returns dispatched to a stale address. Now switches on `local_pc`; fixed in `tools/codegen_main.cpp` and all generated units.
-- **Texture replacement** in the renderer by PPSSPP `hash=quick` ID, pack embedded in the exe; window title and icon from the profile.
-- **Status:** full rebuild pending. Square Enix splash not yet confirmed on the native build.
+**Result: the native build (d012_native, PortableKit) shows the Square Enix splash, plays sound and reaches the title screen and the menus, with the HD texture pack. First time.**
+
+Build and generator
+- The build compiles PortableKit's own `tools/codegen_main.cpp` and `src/program_analysis.cpp`, not the copies in this repo. The unit template there dispatched on `ctx.pc` and did not declare `local_pc` / `entry_id`; it now switches on `local_pc`.
+- A function reached only through a function-pointer table inside the executable segment (0x0880A9A0) was never emitted. PortableKit's section-data scan now finds it (8777 function seeds).
+- Unit span: `psp_recomp <EBOOT.ELF> --auto profiles/d012/generated 0x08804040 16384` gives 113 units of about 1.2 MB. With the old 131072 span each 8 MB unit took 30-40 min to compile. Build with `PSPRECOMP_GENERATED_OPT_LEVEL=0` and `-- /p:UseMultiToolTask=true /p:CL_MPCount=4`.
+- `overlay_menu/generated_registry.cpp` keeps only the unit 0113 placeholder; unit 73 is a real unit now.
+
+Host fixes
+- Fonts: the game computes each glyph's bytes per line as `width / (8 / bits per pixel)` using a byte at offset 0x104 of the font-info struct. It was never written, so every glyph row landed on one line. `write_font_info` now writes 4.
+- Dimmed picture: the GE texture function's colour doubling bit (bit 16) was ignored; it is now carried to the shader.
+- Save data: `LIST` (mode 11) is implemented, filling the ID list the game reads (`param + 0x5F4`). A save made by PPSSPP is stored at its real length and fails the hash check; the check now also accepts the 16-byte-padded form, and `D012_SAVE_IGNORE_HASH=1` loads it anyway for diagnosis. Not yet verified.
+- Texture pack: the PNG inflate now uses a 64-bit bit buffer and table lookups (much faster than the bit-by-bit version). Not yet timed.
+- Window title: "Dissidia 012 Final Fantasy HD Remastered".
+
+Known issues
+- Native fonts are soft at 1080p: glyphs are drawn at PSP size into the game's atlas and stretched.
+- Loading and menu changes are slow (HD decode); re-measure with the new decoder.
+- The opening cinematic freezes the game.
+- Saves: see above.

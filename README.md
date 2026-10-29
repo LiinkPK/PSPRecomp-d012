@@ -37,11 +37,11 @@ profiles/
 
 ```bash
 cmake -S profiles/d012_pk -B out/d012_pk -DPORTABLEKIT_ROOT=<path to portablekit>
-cmake --build out/d012_pk --config Release --target d012_native
+cmake --build out/d012_pk --config Release --target d012_native -- /p:UseMultiToolTask=true /p:CL_MPCount=4
 out/d012_pk/bin/Release/d012_native.exe
 ```
 
-On first run PortableKit asks for the ISO and installs what it needs. The generated units are large; a full compile takes a long time, and afterwards only changed files rebuild.
+On first run PortableKit asks for the ISO and installs what it needs. Configure with `-DPSPRECOMP_GENERATED_OPT_LEVEL=0` (the generated units compile without optimisation); parallel compiles keep a full build to minutes, and afterwards only changed files rebuild.
 
 ---
 
@@ -50,12 +50,12 @@ On first run PortableKit asks for the ISO and installs what it needs. The genera
 The executable is recompiled **unmodified**: the code in `profiles/d012/generated/` comes straight from the decrypted `EBOOT.BIN` and carries no hand patches or forged game state. Regenerate it with:
 
 ```bash
-psp_recomp <ULES01505 EBOOT.elf> --auto profiles/d012/generated 0x08804040 131072
+psp_recomp <ULES01505 EBOOT.elf> --auto profiles/d012/generated 0x08804040 16384
 ```
 
-Each unit covers `0x20000` bytes of guest code as one C++ function that dispatches on the guest program counter. Every PSP import is bound to PortableKit's HLE; `profiles/d012/host/d012_portablekit_profile.cpp` holds only what this game needs on top (entry redirect, fake module ids for the font PRXs, language/RTC answers, a guard for the loader's thread arguments).
+Each unit covers `0x4000` bytes of guest code as one C++ function that dispatches on the guest program counter (113 units). The span matters: with `0x20000` each unit is one 8 MB function and takes 30-40 minutes to compile. Every PSP import is bound to PortableKit's HLE; `profiles/d012/host/d012_portablekit_profile.cpp` holds only what this game needs on top (entry redirect, fake module ids for the font PRXs, language/RTC answers, a guard for the loader's thread arguments).
 
-Inside a unit, jumps and returns update `local_pc`, so the dispatch switches on `local_pc`. An earlier version of the generator switched on a stale `ctx.pc`, which sent every internal return to the wrong address; that is fixed in `tools/codegen_main.cpp` and in the generated units.
+Inside a unit, jumps and returns update `local_pc`, so the dispatch switches on `local_pc`. An earlier version of the generator switched on a stale `ctx.pc`, which sent every internal return to the wrong address. The build uses PortableKit's own `tools/codegen_main.cpp` and `src/program_analysis.cpp`, so generator fixes belong there.
 
 ---
 
@@ -67,7 +67,7 @@ The renderer can replace textures by PPSSPP `hash=quick` ID using a PPSSPP-style
 
 ## Status
 
-The recompiled game boots through its startup code and its main thread runs. Getting the Square Enix splash on screen end to end (resource loading, GE submission, HLE) is the current goal; see `updates.md` for the session-by-session log.
+The native build shows the Square Enix splash, plays sound and reaches the title screen and the menus, with the HD texture pack. Known issues: native text is soft at 1080p, loading and menu changes are slow, the opening cinematic freezes the game, and a save made by PPSSPP fails its hash check (`D012_SAVE_IGNORE_HASH=1` loads it anyway, for diagnosis). See `updates.md` for the session-by-session log.
 
 ---
 
