@@ -4,11 +4,8 @@
 
 namespace psprecomp {
 
-// Stubs for main-ELF units 0073 and 0113 which the overlay calls via
-// invoke_chained_direct but which have no compiled body in this build.
-void recomp_unit_0073(Runtime &rt, AllegrexContext &ctx) {
-    rt.unsupported(ctx.pc, 0u, "missing main unit 0073");
-}
+// Stub for main-ELF unit 0113, which the overlay calls via invoke_chained_direct but which has
+// no compiled body (it would start in the import stub area, past the end of the code).
 void recomp_unit_0113(Runtime &rt, AllegrexContext &ctx) {
     rt.unsupported(ctx.pc, 0u, "missing main unit 0113");
 }

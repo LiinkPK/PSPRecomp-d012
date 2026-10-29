@@ -158,7 +158,7 @@ const GameProfile &game() {
         .register_extra_hle  = register_d012_extra_hle,
         .patch_loaded_image  = patch_d012_image,
 
-        .window_title        = "Dissidia 012 Duodecim HD Remastered",
+        .window_title        = "Dissidia 012 Final Fantasy HD Remastered",
         .window_icon_png     = d012_icon::kPng,
         .window_icon_png_size = d012_icon::kPngSize,
     };
