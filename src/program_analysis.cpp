@@ -310,6 +310,22 @@ std::map<std::uint32_t, std::string> collect_initial_seeds(const Elf32Image &elf
         if (site.type != 2u || !memory.contains(site.patch_address, 4u)) continue;
         add_seed(seeds, ranges, memory.load32(site.patch_address), "relocated_r_mips32_code_pointer");
     }
+    // A decrypted EBOOT carries no relocations, so function pointers stored in tables that live
+    // inside the executable segment (vtables, callback arrays) are invisible to the passes above.
+    // Raw words there also include J opcodes, so only a word whose target starts with a stack
+    // frame setup (addiu sp, sp, -N) is taken as a function pointer.
+    for (std::size_t i = 0; i < elf.segments().size(); ++i) {
+        const auto &segment = elf.segments()[i];
+        if (segment.type != 1u || (segment.flags & 1u) == 0u || segment.file_size < 4u) continue;
+        const std::uint32_t start = elf.segment_runtime_address(i, load_base);
+        const std::uint32_t size = segment.file_size & ~3u;
+        for (std::uint32_t offset = 0u; offset < size; offset += 4u) {
+            const std::uint32_t value = memory.load32(start + offset);
+            if (!is_executable_address(ranges, value)) continue;
+            const std::uint32_t first = memory.load32(value);
+            if ((first & 0xFFFF8000u) == 0x27BD8000u) add_seed(seeds, ranges, value, "executable_segment_data_pointer");
+        }
+    }
     return seeds;
 }
 

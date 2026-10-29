@@ -2,12 +2,12 @@
   "mode": "automatic_global_cfg",
   "emission": "single_copy_basic_blocks",
   "partitioning": "fixed_executable_address_span",
-  "discovered_function_seeds": 8557,
-  "unique_emitted_instructions": 305614,
-  "unique_registered_block_entries": 72105,
+  "discovered_function_seeds": 8777,
+  "unique_emitted_instructions": 340605,
+  "unique_registered_block_entries": 460471,
   "translation_units": 15,
-  "rewritten_translation_units": 15,
-  "registry_rewritten": true,
-  "import_wrappers": 0,
+  "rewritten_translation_units": 14,
+  "registry_rewritten": false,
+  "import_wrappers": 296,
   "unit_span_bytes": 131072
 }
